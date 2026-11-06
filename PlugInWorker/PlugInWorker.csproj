@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>RTSysPlugInWorker</AssemblyName>
+    <RootNamespace>RTSys.PlugIn.Worker</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\Release\</OutputPath>
+    <PlatformTarget>x86</PlatformTarget>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <!-- Handlers.cs 需要遍历宿主编辑器可视树（System.Windows.Media.VisualTreeHelper） -->
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <!-- INameScope / XamlNameScope 需要 System.Xaml -->
+    <Reference Include="System.Xaml" />
+    <!-- 外部依赖 DLL 由 RTSys 环境提供，Private=false -->
+    <Reference Include="TrioSharedLibrary">
+      <HintPath>..\..\TrioSharedLibrary.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="TrioCommunicationsLibrary">
+      <HintPath>..\..\TrioCommunicationsLibrary.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="TrioBaseLib">
+      <HintPath>..\..\TrioBaseLib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="DispatcherHelper.cs" />
+    <!-- 业务逻辑文件（从 PlugInAdapter 移过来） -->
+    <Compile Include="ApiServer.cs" />
+    <Compile Include="RTSysHandlers.cs" />
+    <Compile Include="ZMotionAPI.cs" />
+    <Compile Include="ZMotionExtensions.cs" />
+    <Compile Include="ZMotionHandle.cs" />
+    <Compile Include="ZMotionErrors.cs" />
+    <Compile Include="AiService.cs" />
+    <Compile Include="AiConfig.cs" />
+    <Compile Include="AiJson.cs" />
+    <Compile Include="AiPrompt.cs" />
+    <Compile Include="AiTools.cs" />
+    <Compile Include="AiSkills.cs" />
+    <Compile Include="AiSession.cs" />
+    <Compile Include="AiMemory.cs" />
+    <Compile Include="AiHistory.cs" />
+    <Compile Include="AiSubagent.cs" />
+    <Compile Include="AiValidation.cs" />
+    <Compile Include="AiControllerValidation.cs" />
+    <Compile Include="AiCompat.cs" />
+    <Compile Include="AiOptimizationTests.cs" />
+    <Compile Include="Handlers.cs" />
+    <Compile Include="PlugInLog.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="skills\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

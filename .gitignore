@@ -1,0 +1,19 @@
+# 构建输出
+bin/
+obj/
+*.pdb
+*.user
+*.suo
+.vs/
+
+# 部署产物（体积大，由构建生成）
+deploy/PlugInNative/*.dll
+deploy/PlugInNative/*.exe
+
+# 外部依赖（不纳入版本控制）
+*.dll
+*.exe
+!tools/**/*.exe
+
+# 日志
+*.log

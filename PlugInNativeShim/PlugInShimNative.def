@@ -1,0 +1,14 @@
+; ============================================================================
+; PlugInShimNative.def —— 纯原生导出桩模块定义
+; RTSys.exe 通过 GetProcAddress("PlugIn_*") 加载，导出名必须与
+; PlugInShimNative.cpp 中的 __declspec(dllexport) 函数名严格一致。
+; ============================================================================
+LIBRARY   "PlugInShimNative.dll"
+
+EXPORTS
+    PlugIn_GetHandle   @1
+    PlugIn_SetDockBar  @2
+    PlugIn_SetAutoSize @3
+    PlugIn_Create      @4
+    PlugIn_Reserved    @5
+    PlugIn_Destroy     @6
