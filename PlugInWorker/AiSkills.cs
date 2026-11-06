@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -157,7 +157,7 @@ namespace RTSys.PlugIn
             return null;
         }
 
-        private static object ReadSkill(string name)
+        internal static object ReadSkill(string name)
         {
             if (string.IsNullOrEmpty(name))
                 return new { error = "name is required" };
@@ -180,7 +180,7 @@ namespace RTSys.PlugIn
         /// 列出所有可用的 markdown skill（按 category 过滤），让 AI 在工具选择阶段就能感知可用技能。
         /// 比 read_skill(name) 试错更高效 — AI 看完列表后直接选对 skill 加载。
         /// </summary>
-        private static object DiscoverSkills(string category)
+        internal static object DiscoverSkills(string category)
         {
             var skills = LoadMdSkills();
             if (skills.Count == 0)
@@ -423,7 +423,7 @@ namespace RTSys.PlugIn
             return null;
         }
 
-        private static object LookupCommand(string query, string fullFlag, string library = null)
+        internal static object LookupCommand(string query, string fullFlag, string library = null)
         {
             if (string.IsNullOrEmpty(query))
                 return new { error = "query is required" };

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -1270,45 +1270,8 @@ namespace RTSys.PlugIn
         // ---- Chat Panel ----
         public static object OpenChat()
         {
-            var mw = MW;
-            if (mw == null) return Error("No main window");
-            try
-            {
-                var factory = ChatPanel.Factory;
-                var factoryBase = factory as ToolFactoryBase;
-                var isInstalled = factoryBase?.IsInstalled ?? false;
-
-                // Try CreateInstance directly
-                IToolControl directInstance = null;
-                string directError = null;
-                string toolName = ChatPanel.RegisteredToolName;
-                try
-                {
-                    directInstance = factory.CreateInstance(toolName);
-                }
-                catch (Exception ex2) { directError = ex2.Message; }
-
-                // Try OpenToolWindow by factory
-                var resultByFactory = mw.OpenToolWindow(factory, true);
-
-                // Try OpenToolWindow by name
-                var resultByName = mw.OpenToolWindow(toolName, true);
-
-                return new
-                {
-                    isInstalled,
-                    toolName,
-                    directCreateType = directInstance?.GetType().Name,
-                    directCreateTool = directInstance?.Tool?.Title,
-                    directError,
-                    resultByFactory = resultByFactory?.GetType().Name,
-                    resultByName = resultByName?.GetType().Name
-                };
-            }
-            catch (Exception ex)
-            {
-                return Error("Chat failed: " + ex.GetType().Name + " - " + ex.Message + "\n" + ex.StackTrace);
-            }
+            // RTSys 下由宿主 DockBar 承载 ChatPanel，无需通过 MP 工具窗口打开
+            return Error("OpenChat not supported on RTSys (chat panel is embedded by host)");
         }
 
         // ---- Axes ----

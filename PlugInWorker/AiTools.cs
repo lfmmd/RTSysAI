@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Web.Script.Serialization;
@@ -319,7 +319,7 @@ namespace RTSys.PlugIn
         // ---- Task / Todo 系统实现 ----
         // 状态存储在 AiSession 的 _tasks 字段；不进入 conversation history。
 
-        private object TaskCreate(string subject, string description)
+        internal object TaskCreate(string subject, string description)
         {
             if (string.IsNullOrEmpty(subject))
                 return new { error = "subject is required" };
@@ -346,7 +346,7 @@ namespace RTSys.PlugIn
             }
         }
 
-        private object TaskUpdate(int id, string status, string subject, string description)
+        internal object TaskUpdate(int id, string status, string subject, string description)
         {
             if (id <= 0)
                 return new { error = "id is required" };
@@ -378,7 +378,7 @@ namespace RTSys.PlugIn
             }
         }
 
-        private object TaskList()
+        internal object TaskList()
         {
             lock (_tasksLock)
             {

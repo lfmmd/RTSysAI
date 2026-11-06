@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <AssemblyName>RTSysPlugInWorker</AssemblyName>
@@ -11,6 +11,12 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- 允许 Adapter（UI 层）访问 Worker 的 internal 类型：ApiServer / AiService / PlugInLog 等 -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>RTSysPlugInAdapter</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -63,6 +69,7 @@
     <Compile Include="AiOptimizationTests.cs" />
     <Compile Include="Handlers.cs" />
     <Compile Include="PlugInLog.cs" />
+    <Compile Include="Lang.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="skills\**" CopyToOutputDirectory="PreserveNewest" />

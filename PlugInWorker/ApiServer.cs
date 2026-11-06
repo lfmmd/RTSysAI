@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -13,6 +13,9 @@ namespace RTSys.PlugIn
         private HttpListener _listener;
         private readonly JavaScriptSerializer _json = new JavaScriptSerializer();
         private bool _running;
+        // Task 路由需要 AiService 实例（task 状态是实例字段）
+        private static volatile AiService _taskService;
+        private static AiService TaskService => _taskService ?? (_taskService = new AiService());
 
         public void Start()
         {
@@ -203,7 +206,7 @@ namespace RTSys.PlugIn
 
                     case "project":
                         if (method == "POST" && segments.Length == 2)
-                            HandleMethod(ctx, method, "POST", () => InvokeHandler(RTSysHandlers.OpenProject));
+                            HandleMethod(ctx, method, "POST", () => InvokeHandler(() => RTSysHandlers.OpenProject(null)));
                         else if (method == "PUT" && segments.Length == 2)
                             HandleMethod(ctx, method, "PUT", () => InvokeHandler(RTSysHandlers.SaveProject));
                         else if (method == "POST" && segments.Length == 3 && segments[2] == "open")
@@ -383,7 +386,7 @@ namespace RTSys.PlugIn
 
                     case "sysvars":
                         if (segments.Length == 2)
-                            HandleMethod(ctx, method, "GET", () => InvokeHandler(RTSysHandlers.GetSystemVariables));
+                            HandleMethod(ctx, method, "GET", () => InvokeHandler(() => NotSupported("System variables")));
                         else
                             SendJson(ctx, 404, new { error = "Not found" });
                         break;
@@ -457,7 +460,7 @@ namespace RTSys.PlugIn
 
                     case "oscilloscope":
                         if (segments.Length == 3 && segments[2] == "open" && method == "POST")
-                            HandleMethod(ctx, method, "POST", () => InvokeHandler(RTSysHandlers.OpenOscilloscope));
+                            HandleMethod(ctx, method, "POST", () => InvokeHandler(() => NotSupported("Oscilloscope")));
                         else
                             SendJson(ctx, 404, new { error = "Not found" });
                         break;
@@ -571,7 +574,7 @@ namespace RTSys.PlugIn
                         break;
 
                     case "chat":
-                        HandleMethod(ctx, method, "POST", () => InvokeHandler(RTSysHandlers.OpenChat));
+                        HandleMethod(ctx, method, "POST", () => InvokeHandler(() => NotSupported("Open chat window")));
                         break;
 
                     case "validate_basic":
@@ -660,17 +663,17 @@ namespace RTSys.PlugIn
                     case "tasks":
                         if (segments.Length == 2 && method == "GET")
                         {
-                            HandleMethod(ctx, method, "GET", () => InvokeHandler(AiService.TaskList));
+                            HandleMethod(ctx, method, "GET", () => InvokeHandler(TaskService.TaskList));
                         }
                         else if (segments.Length == 2 && method == "POST")
                         {
-                            HandleBody(ctx, method, body => InvokeHandler(b => AiService.TaskCreate(
+                            HandleBody(ctx, method, body => InvokeHandler(b => TaskService.TaskCreate(
                                 GetString(b, "subject"),
                                 GetString(b, "description")), body));
                         }
                         else if (segments.Length == 2 && method == "PUT")
                         {
-                            HandleBody(ctx, method, body => InvokeHandler(b => AiService.TaskUpdate(
+                            HandleBody(ctx, method, body => InvokeHandler(b => TaskService.TaskUpdate(
                                 GetInt(b, "id", 0),
                                 GetString(b, "status"),
                                 GetString(b, "subject"),
