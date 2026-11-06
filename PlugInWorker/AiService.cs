@@ -31,9 +31,9 @@ namespace RTSys.PlugIn
         private readonly HttpClient _http;
         private static string _lastCompileError;
 
-        // 生效方言（"triobasic"/"iec"）：每轮 CallApiStream 开头由 ResolveActiveDialect 刷新。
+        // 生效方言（"rtbasic"）：每轮 CallApiStream 开头由 ResolveActiveDialect 刷新。
         // auto 模式按项目主导方言推断；手动模式直接用 _dialectMode。决定 LoadDialectPrompt 选哪份提示词。
-        private string _activeDialect = "triobasic";
+        private string _activeDialect = "rtbasic";
 
         private const int DefaultMaxTokens = 8192;
         private const int EscalatedMaxTokens = 64000;
@@ -563,11 +563,11 @@ namespace RTSys.PlugIn
 
         // ---- API Call (Streaming SSE) ----
 
-        // 生效方言决策：手动模式（triobasic/iec）直接用；auto 模式推断项目主导方言。
+        // 生效方言决策：手动模式（rtbasic）直接用；auto 模式推断项目主导方言。
+        // RTSys 本体只跑 RTBasic，IEC 属 RTPlc 产品线，不在此插件范围内。
         private string ResolveActiveDialect()
         {
-            if (_dialectMode == "iec") return "iec";
-            if (_dialectMode == "triobasic") return "triobasic";
+            if (_dialectMode == "rtbasic") return "rtbasic";
             return InferProjectDialect();
         }
 

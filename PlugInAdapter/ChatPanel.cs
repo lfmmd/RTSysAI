@@ -41,6 +41,46 @@ namespace RTSys.PlugIn
         private ProgressBar _researchBar;
         private TextBlock _researchLabel;
 
+        // 跟踪所有已打开的对话框（设置/历史/记忆/关于）。
+        // 这些对话框在 RTSys 下没有 owner（ChatPanel 位于 HwndSource 中），
+        // 插件销毁时不会自动关闭，必须显式关闭，否则会残留在宿主窗口之后。
+        private readonly List<Window> _openDialogs = new List<Window>();
+        private readonly object _dialogsLock = new object();
+
+        /// <summary>登记对话框，并在其关闭时自动移除引用。</summary>
+        private void TrackDialog(Window win)
+        {
+            if (win == null) return;
+            lock (_dialogsLock) { _openDialogs.Add(win); }
+            win.Closed += (s, e) =>
+            {
+                lock (_dialogsLock) { _openDialogs.Remove(win); }
+            };
+        }
+
+        /// <summary>关闭所有尚未关闭的对话框（插件销毁时调用）。</summary>
+        internal void CloseAllDialogs()
+        {
+            Window[] snapshot;
+            lock (_dialogsLock)
+            {
+                if (_openDialogs.Count == 0) return;
+                snapshot = _openDialogs.ToArray();
+                _openDialogs.Clear();
+            }
+            foreach (var w in snapshot)
+            {
+                try
+                {
+                    if (w.IsVisible) w.Close();
+                }
+                catch (Exception ex)
+                {
+                    try { PlugInLog.LogException("ChatPanel.CloseAllDialogs", ex); } catch { }
+                }
+            }
+        }
+
         /// <summary>
         /// Safe MessageBox.Show helper that doesn't crash when Window.GetWindow(this) returns null
         /// (e.g., when ChatPanel is hosted via HwndSource.RootVisual instead of a real Window).
@@ -941,6 +981,7 @@ namespace RTSys.PlugIn
             panel.Children.Add(okBtn);
 
             ApplySafeOwner(win);
+            TrackDialog(win);
             win.Content = panel;
             win.ShowDialog();
         }
@@ -1045,6 +1086,7 @@ namespace RTSys.PlugIn
             panel.Children.Add(btnPanel);
 
             ApplySafeOwner(win);
+            TrackDialog(win);
             win.Content = panel;
             win.ShowDialog();
         }
@@ -1383,6 +1425,7 @@ namespace RTSys.PlugIn
             // 内容可能超出固定窗口高度（checkbox 多 + 高 DPI 缩放），用 ScrollViewer 兜底，
             // 保证底部按钮行（初始化/取消/保存）始终可达，未来再加设置项也无需改尺寸。
             ApplySafeOwner(win);
+            TrackDialog(win);
             win.Content = new ScrollViewer
             {
                 Content = panel,
@@ -1664,6 +1707,7 @@ namespace RTSys.PlugIn
 
             dock.Children.Add(listBox);
             ApplySafeOwner(win);
+            TrackDialog(win);
             win.Content = dock;
             win.ShowDialog();
         }

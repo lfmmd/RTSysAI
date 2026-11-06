@@ -361,6 +361,15 @@ namespace RTSys.PlugIn
         {
             try
             {
+                // 先关闭插件打开的所有对话框（设置/历史/记忆/关于）。
+                // 这些对话框在 RTSys 下没有 owner，插件销毁时不会自动关闭，
+                // 不显式关闭会一直浮在宿主窗口之上。
+                var view = _view as ChatPanel;
+                if (view != null)
+                {
+                    RunOnUiThread(() => view.CloseAllDialogs());
+                }
+
                 if (_resizeTimer != null)
                 {
                     _resizeTimer.Stop();

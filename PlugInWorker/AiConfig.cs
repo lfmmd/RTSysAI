@@ -23,7 +23,7 @@ namespace RTSys.PlugIn
         private static bool _memoryEnabled = true;
         private static bool _localizeThinking = true;
         private static bool _useChineseDocs = false;   // skill 文档语言：false=英文（默认），true=中文
-        private string _dialectMode = "auto";   // 提示词方言：auto(按项目主导方言推断)/triobasic/iec
+        private string _dialectMode = "auto";   // 提示词方言：auto(按项目主导方言推断)/rtbasic
 
         // ---- Config ----
 
