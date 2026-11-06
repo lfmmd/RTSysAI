@@ -144,11 +144,11 @@ namespace RTSys.PlugIn
         private string BuildSubagentDialectHint()
         {
             var dialect = string.IsNullOrEmpty(_activeDialect) ? "" : _activeDialect;
-            if (dialect == "triobasic")
-                return "## Current dialect: TrioBASIC\n\n" +
-                       "You are working on TrioBASIC programs. Verify/research with lookup_command(query, library=\"triobasic\"). " +
-                       "TrioBASIC is a niche BASIC dialect — it drifts to VB/VB.NET/QBasic/PowerBASIC. " +
-                       "Do NOT trust your memory of \"BASIC\"; verify every command/declaration (DIM...AS type, motion MOVE/MOVEABS/CONNECT/WAITS, axis params SPEED/ACCEL/WDOG) against the reference.";
+            if (dialect == "rtbasic")
+                return "## Current dialect: RTBasic\n\n" +
+                       "You are working on RTBasic programs (RTSys / ZMotion controller). Verify/research with lookup_command(query, library=\"rtbasic\"). " +
+                       "RTBasic is a proprietary BASIC dialect — it drifts to VB/VB.NET/QBasic/PowerBASIC. " +
+                       "Do NOT trust your memory of \"BASIC\"; verify every command/declaration (motion MOVE/MOVEABS/CONNECT/WAIT IDLE, axis params SPEED/ACCEL/WDOG/UNITS/BASE) against the reference.";
             if (dialect == "iec")
                 return "## Current dialect: IEC ST\n\n" +
                        "You are working on IEC ST programs. Verify/research with lookup_command(query, library=\"iec\") and get_iec_task_detail. " +

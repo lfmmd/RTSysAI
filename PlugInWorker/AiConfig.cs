@@ -128,6 +128,26 @@ namespace RTSys.PlugIn
             if (dialectMode != null && (dialectMode == "auto" || dialectMode == "triobasic" || dialectMode == "iec"))
                 _dialectMode = dialectMode;
             var json = _json.Serialize(new { apiKey = _apiKey, model = _model, lightModel = _lightModel ?? "", apiUrl = _apiUrl, showToolStatus = _showToolStatus, skillsInitialized = _skillsInitialized, includeSkillImages = _includeSkillImages, enableControllerValidation = _enableControllerValidation, enableThinking = _enableThinking, budgetTokens = _budgetTokens, showThinking = _showThinking, memoryEnabled = _memoryEnabled, localizeThinking = _localizeThinking, useChineseDocs = _useChineseDocs, dialectMode = _dialectMode });
+            // 保留配置文件中的"未知键"（例如 RTSysIP、用户自定义项）：
+            // 本方法只重写自己管理的字段，其余键原样合并回去，避免整份覆盖丢失配置。
+            try
+            {
+                if (File.Exists(ConfigPath))
+                {
+                    var existing = _json.Deserialize<Dictionary<string, object>>(File.ReadAllText(ConfigPath));
+                    var merged = _json.Deserialize<Dictionary<string, object>>(json);
+                    if (existing != null && merged != null)
+                    {
+                        foreach (var kv in existing)
+                        {
+                            if (!merged.ContainsKey(kv.Key))
+                                merged[kv.Key] = kv.Value;
+                        }
+                        json = _json.Serialize(merged);
+                    }
+                }
+            }
+            catch { /* 合并失败则退回覆盖写，不阻断保存 */ }
             File.WriteAllText(ConfigPath, json);
         }
 
