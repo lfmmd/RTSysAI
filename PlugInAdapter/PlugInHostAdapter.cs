@@ -89,6 +89,10 @@ namespace RTSys.PlugIn
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
@@ -208,6 +212,9 @@ namespace RTSys.PlugIn
         private DispatcherTimer _resizeTimer;
         private IntPtr _embeddedChildHwnd;
         private IntPtr _embeddedParentHwnd;
+        // 记录宿主父窗口上一次的可见状态。RTSys 关闭插件面板时只隐藏父窗口、
+        // 不调用 PlugIn_Destroy，因此必须在定时器里检测可见性变化来自行清理 UI。
+        private bool _wasVisible;
 
         // 嵌入式 WPF 窗口源与降级独立窗口。必须持有字段引用，
         // 否则 OnDispose 时无从释放，导致宿主关闭插件后窗口/定时器残留。
@@ -506,9 +513,13 @@ namespace RTSys.PlugIn
                 PlugInLog.Log("Create() EnsureUiThread() OK");
 
                 // 3) 把 UI 创建与挂载调度到 UI 线程执行，同步等待完成
+                //    注意：RTSys 每次点击插件菜单都会重新调用 PlugIn_Create，但不会先调用
+                //    PlugIn_Destroy。若直接再挂一次会泄漏旧的 HwndSource / 定时器 / FakeCWnd。
+                //    这里在重新挂载前先清理上一套资源（保留 _view 复用，避免丢失会话界面）。
                 IntPtr pluginWindow;
                 if (Thread.CurrentThread == _uiThread)
                 {
+                    DetachPreviousView();
                     pluginWindow = CreateAndAttachView(pHost);
                 }
                 else
@@ -518,6 +529,7 @@ namespace RTSys.PlugIn
                     {
                         try
                         {
+                            DetachPreviousView();
                             pluginWindow = CreateAndAttachView(pHost);
                             tcs.SetResult(pluginWindow);
                         }
@@ -865,7 +877,31 @@ namespace RTSys.PlugIn
             try
             {
                 if (_embeddedParentHwnd == IntPtr.Zero || _embeddedChildHwnd == IntPtr.Zero) return;
-                if (!NativeWindow.IsWindow(_embeddedParentHwnd)) return;
+
+                // 宿主关闭插件面板时不会调用 PlugIn_Destroy，只会隐藏/销毁 CPluginView 窗口。
+                // 这里检测父窗口状态，变化时主动关闭插件打开的所有对话框，避免残留在后台。
+                if (!NativeWindow.IsWindow(_embeddedParentHwnd))
+                {
+                    if (_wasVisible)
+                    {
+                        _wasVisible = false;
+                        PlugInLog.Log("SizeFollow() 父窗口已销毁，关闭所有对话框");
+                        CloseDialogsSafe();
+                    }
+                    return;
+                }
+
+                bool visible = NativeWindow.IsWindowVisible(_embeddedParentHwnd);
+                if (visible != _wasVisible)
+                {
+                    _wasVisible = visible;
+                    PlugInLog.Log("SizeFollow() 父窗口可见性变化: " + visible);
+                    if (!visible)
+                    {
+                        CloseDialogsSafe();
+                    }
+                }
+                if (!visible) return;
 
                 NativeWindow.RECT rc;
                 if (!NativeWindow.GetClientRect(_embeddedParentHwnd, out rc)) return;
@@ -876,6 +912,81 @@ namespace RTSys.PlugIn
                     NativeWindow.SWP_NOZORDER | NativeWindow.SWP_NOACTIVATE | NativeWindow.SWP_SHOWWINDOW);
             }
             catch { /* size follow best-effort only */ }
+        }
+
+        /// <summary>关闭 ChatPanel 打开的所有对话框（在 UI 线程上执行）。</summary>
+        private void CloseDialogsSafe()
+        {
+            try
+            {
+                var panel = _view as ChatPanel;
+                if (panel == null) return;
+                RunOnUiThread(() => panel.CloseAllDialogs());
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("CloseDialogsSafe", ex);
+            }
+        }
+
+        /// <summary>
+        /// 在重新创建视图前清理上一套挂载资源（必须在 UI 线程执行）。
+        ///
+        /// RTSys 每次点击插件菜单都会重新调用 PlugIn_Create，但不先调用 PlugIn_Destroy，
+        /// 因此必须显式释放旧的 HwndSource / 定时器 / FakeCWnd 内存块，否则每次点开
+        /// 插件都会泄漏一套资源，旧对话框也会残留在后台。
+        ///
+        /// 注意：保留 _view（ChatPanel 实例）以便复用，避免丢失当前会话界面。
+        /// </summary>
+        private void DetachPreviousView()
+        {
+            try
+            {
+                PlugInLog.Log("DetachPreviousView() enter");
+                CloseDialogsSafe();
+
+                // 1) 停止尺寸跟随定时器
+                if (_resizeTimer != null)
+                {
+                    try { _resizeTimer.Stop(); } catch { }
+                    _resizeTimer = null;
+                }
+                _embeddedParentHwnd = IntPtr.Zero;
+                _embeddedChildHwnd = IntPtr.Zero;
+                _wasVisible = false;
+
+                // 2) 释放旧的 HwndSource（先摘掉 RootVisual 再 Dispose）
+                var source = _hwndSource;
+                _hwndSource = null;
+                if (source != null)
+                {
+                    try { source.RootVisual = null; } catch { }
+                    try { source.Dispose(); } catch { }
+                    PlugInLog.Log("DetachPreviousView() 旧 HwndSource 已释放");
+                }
+
+                // 3) 关闭降级独立窗口
+                var fallback = _fallbackWindow;
+                _fallbackWindow = null;
+                if (fallback != null)
+                {
+                    try { fallback.Close(); } catch { }
+                    PlugInLog.Log("DetachPreviousView() 旧降级窗口已关闭");
+                }
+
+                // 4) 释放旧 FakeCWnd 内存块（宿主已不再引用该块）
+                if (_fakeCWndBlock != IntPtr.Zero)
+                {
+                    try { Marshal.FreeHGlobal(_fakeCWndBlock); } catch { }
+                    _fakeCWndBlock = IntPtr.Zero;
+                }
+                _pluginWindow = IntPtr.Zero;
+                PlugInLog.Log("DetachPreviousView() exit");
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("DetachPreviousView", ex);
+            }
         }
 
         #endregion

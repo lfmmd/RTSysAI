@@ -93,7 +93,8 @@ namespace RTSys.PlugIn
                     if (cfg.TryGetValue("dialectMode", out val))
                     {
                         var s = val?.ToString();
-                        if (s == "auto" || s == "triobasic" || s == "iec") _dialectMode = s;
+                        if (s == "auto" || s == "rtbasic") _dialectMode = s;
+                        else _dialectMode = "rtbasic"; // 兼容旧配置（triobasic/iec），统一回落到 rtbasic
                     }
                 }
             }
@@ -125,8 +126,10 @@ namespace RTSys.PlugIn
                 _skillDetailCache.Clear();      // cached HTML is language-specific
                 _validationIndexBuilt = false;  // _triobasicIds/_signatures reflect the lang dir's files
             }
-            if (dialectMode != null && (dialectMode == "auto" || dialectMode == "triobasic" || dialectMode == "iec"))
+            if (dialectMode != null && (dialectMode == "auto" || dialectMode == "rtbasic"))
                 _dialectMode = dialectMode;
+            else if (dialectMode != null)
+                _dialectMode = "rtbasic"; // 兼容旧值
             var json = _json.Serialize(new { apiKey = _apiKey, model = _model, lightModel = _lightModel ?? "", apiUrl = _apiUrl, showToolStatus = _showToolStatus, skillsInitialized = _skillsInitialized, includeSkillImages = _includeSkillImages, enableControllerValidation = _enableControllerValidation, enableThinking = _enableThinking, budgetTokens = _budgetTokens, showThinking = _showThinking, memoryEnabled = _memoryEnabled, localizeThinking = _localizeThinking, useChineseDocs = _useChineseDocs, dialectMode = _dialectMode });
             // 保留配置文件中的"未知键"（例如 RTSysIP、用户自定义项）：
             // 本方法只重写自己管理的字段，其余键原样合并回去，避免整份覆盖丢失配置。
