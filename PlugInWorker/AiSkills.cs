@@ -52,12 +52,22 @@ namespace RTSys.PlugIn
                 if (!Directory.Exists(SkillsDir)) return _index;
                 // 文档语言：默认英文，开关开启用中文。每个库按 {lib}/{lang}/ 组织。
                 var lang = _useChineseDocs ? "zh" : "en";
-                // 加载所有库子目录（triobasic / iec / plcopen），每条 entry 的 Dir 标识来源。
-                foreach (var lib in new[] { "triobasic", "iec", "plcopen" })
+                // 加载参考库子目录（rtbasic），每条 entry 的 Dir 标识来源。
+                foreach (var lib in new[] { "rtbasic" })
                 {
                     var libDir = Path.Combine(SkillsDir, lib, lang);
                     var idxFile = Path.Combine(libDir, "index.json");
-                    if (!File.Exists(idxFile)) continue;
+                    // 语言回退：RTBasic 官方参考只有中文版，所选语言没有索引时回退到另一语言，
+                    // 否则 useChineseDocs=false（默认）会让整个 catalog 变空。
+                    if (!File.Exists(idxFile))
+                    {
+                        var alt = lang == "zh" ? "en" : "zh";
+                        var altDir = Path.Combine(SkillsDir, lib, alt);
+                        var altIdx = Path.Combine(altDir, "index.json");
+                        if (!File.Exists(altIdx)) continue;
+                        libDir = altDir;
+                        idxFile = altIdx;
+                    }
                     var text = File.ReadAllText(idxFile);
                     var items = _json.Deserialize<List<Dictionary<string, object>>>(text);
                     if (items == null) continue;
@@ -238,7 +248,7 @@ namespace RTSys.PlugIn
                     sb.AppendFormat("- **{0}**: {1} entries — categories: {2}\n",
                         kv.Key, kv.Value.Count, SummarizeTypes(kv.Value));
                 sb.AppendLine();
-                sb.AppendLine("MANDATORY: Before writing TrioBASIC, IEC ST/SFC/LD/FBD, or PLCopen code, call lookup_command for any identifier you are not 100% sure exists in the official reference. Do NOT trust your training-data memory of these dialects.");
+                sb.AppendLine("MANDATORY: Before writing RTBasic code, call lookup_command for any identifier you are not 100% sure exists in the official reference. Do NOT trust your training-data memory of this dialect — it is a proprietary ZMotion BASIC and easily drifts into VB/QBasic habits.");
                 sb.AppendLine();
             }
             // Markdown skill（read_skill 索引）

@@ -209,6 +209,11 @@ namespace RTSys.PlugIn
         private IntPtr _embeddedChildHwnd;
         private IntPtr _embeddedParentHwnd;
 
+        // 嵌入式 WPF 窗口源与降级独立窗口。必须持有字段引用，
+        // 否则 OnDispose 时无从释放，导致宿主关闭插件后窗口/定时器残留。
+        private HwndSource _hwndSource;
+        private Window _fallbackWindow;
+
         #region ---- 单例存取 ----
 
         /// <summary>获取或创建全局单例。</summary>
@@ -309,6 +314,7 @@ namespace RTSys.PlugIn
 
         public void OnDispose()
         {
+            bool needUiCleanup = false;
             lock (_lock)
             {
                 if (!_isInitialized || _isDisposed) return;
@@ -328,6 +334,7 @@ namespace RTSys.PlugIn
                     _isInitialized = false;
                     _view = null;
                     _pluginWindow = IntPtr.Zero;
+                    needUiCleanup = true;
                     // 释放“假 CWnd”内存块（宿主在 PlugIn_Destroy 之后即 AfxFreeLibrary，不再解引用）
                     if (_fakeCWndBlock != IntPtr.Zero)
                     {
@@ -335,6 +342,74 @@ namespace RTSys.PlugIn
                         _fakeCWndBlock = IntPtr.Zero;
                     }
                 }
+            }
+
+            // 锁外清理 UI 资源：Dispatcher.Invoke 可能等待 UI 线程，
+            // 若持有 _lock 而 UI 线程正在 GetView() 里等同一把锁，会死锁。
+            if (needUiCleanup)
+            {
+                CleanupUiResources();
+            }
+        }
+
+        /// <summary>
+        /// 释放嵌入窗口与尺寸跟随定时器。
+        /// HwndSource / Window 都是 UI 线程亲和对象，必须在其 Dispatcher 上销毁；
+        /// 若 UI 线程已退出，则退化为直接 Dispose（此时宿主进程通常正在卸载，尽力而为）。
+        /// </summary>
+        private void CleanupUiResources()
+        {
+            try
+            {
+                if (_resizeTimer != null)
+                {
+                    _resizeTimer.Stop();
+                    _resizeTimer = null;
+                }
+                _embeddedParentHwnd = IntPtr.Zero;
+                _embeddedChildHwnd = IntPtr.Zero;
+
+                var source = _hwndSource;
+                _hwndSource = null;
+                if (source != null)
+                {
+                    RunOnUiThread(() => source.Dispose());
+                }
+
+                var window = _fallbackWindow;
+                _fallbackWindow = null;
+                if (window != null)
+                {
+                    RunOnUiThread(() => window.Close());
+                }
+
+                PlugInLog.Log("CleanupUiResources() 已释放 HwndSource/Window/SizeFollow");
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("CleanupUiResources", ex);
+            }
+        }
+
+        /// <summary>在 UI 线程上执行动作；UI 线程已退出时直接在当前线程执行。</summary>
+        private void RunOnUiThread(Action action)
+        {
+            if (action == null) return;
+            try
+            {
+                var dispatcher = _uiDispatcher;
+                if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
+                {
+                    dispatcher.Invoke(DispatcherPriority.Normal, action);
+                }
+                else
+                {
+                    action();
+                }
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("RunOnUiThread", ex);
             }
         }
 
@@ -696,6 +771,7 @@ namespace RTSys.PlugIn
                     };
                     PlugInLog.Log("AttachView() creating HwndSource...");
                     var source = new HwndSource(sourceParams);
+                    _hwndSource = source;
                     PlugInLog.Log("AttachView() HwndSource created, hwnd=0x" + source.Handle.ToString("X"));
                     source.RootVisual = view;
                     PlugInLog.Log("AttachView() RootVisual assigned");
@@ -722,6 +798,7 @@ namespace RTSys.PlugIn
                     WindowStartupLocation = WindowStartupLocation.CenterScreen,
                     ShowInTaskbar = false
                 };
+                _fallbackWindow = window;
                 window.Show();
                 return new WindowInteropHelper(window).Handle;
             }

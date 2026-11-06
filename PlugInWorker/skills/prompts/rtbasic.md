@@ -78,12 +78,12 @@ RTBasic **不区分大小写**，关键字惯用大写。
 | `Console.WriteLine(x)` / `Debug.Print`  | `PRINT x`（也可用 `? x`）                                                   |
 | `MsgBox(...)` / `InputBox(...)`         | （不存在）—— 输出只能用 `PRINT`                                            |
 | `Math.Sqrt(x)` / `Math.Abs(x)` / `Math.PI` | `SQR(x)` / `ABS(x)` / `4 * ATAN(1)`                                 |
-| `x.ToString()`                          | `STR(x)`                                                                    |
+| `x.ToString()`                          | `TOSTR(x)`                                                                  |
 | `Integer.Parse("123")` / `CInt(...)`    | `VAL("123")`                                                                |
 | `Const PI As Double = 3.14`             | `CONST PI = 3.14`（无 As 子句）                                             |
 | `==` / `!=` 比较                         | `=` 既是赋值也是相等；不等用 `<>`                                            |
 | `REM` 注释                               | `' 注释`                                                                     |
-| `WAIT UNTIL cond`                       | RTBasic 用 `WAIT IDLE` / `WAIT IN_POS`（先查参考确认可用形式）              |
+| `WAIT UNTIL cond`                       | RTBasic **也有** `WAIT UNTIL cond`；等待运动结束另有 `WAIT IDLE` / `WAIT LOADED` |
 
 任何一行不确定，就先 `lookup_command`。
 
@@ -101,7 +101,7 @@ RTBasic **不区分大小写**，关键字惯用大写。
 - **`CANCEL(mode)` / `RAPIDSTOP(mode)`** — 取消/停止**运动**。注意 **`STOP "程序名"[, tasknum]`** 停止的是**程序/任务**（字符串参数），完全不同的指令。
 - **`AXIS(expression)`** — 临时把某条指令/参数限定到指定轴，执行完仍以 `BASE` 为准。
 - **轴参数在 BASE 选轴后赋值/读取**：`BASE(0)` 之后 `SPEED = 500` / `ACCEL = 1000` / `DECEL = 1500` / `SERVO = ON` / `WDOG = ON` / `UNITS = 4000` / `v = DPOS`。也可用带轴号形式 `SPEED(1) = 500`。
-- **`WAIT IDLE`** — 等待运动结束（`WAIT IDLE` / `WAIT IDLE AXIS(0)`）；**`WAIT IN_POS`** — 等待到位。
+- **`WAIT IDLE`** — 等待运动结束（`WAIT IDLE` / `WAIT IDLE AXIS(0)`）；**`WAIT LOADED`** — 等待程序加载完成。
 - **`VR(index)`** — 读写 VR：`v = VR(5)` / `VR(5) = 3.14`。
 - **`TABLE(index)`** — 读写 TABLE：`TABLE(0) = 100` / `v = TABLE(0)`；`MOVE_TABLE(tablenum, value)` 写缓冲 Table。
 - **`PRINT expression[, "string"]`** — 输出到调试窗口（也可用 `? expression`）。
@@ -118,7 +118,7 @@ RTBasic 保留系统变量、运动指令、I/O 关键字与内置函数名，�
 - 严禁把用户变量、标签、子程序名命名为任何系统变量或内置函数名，**哪怕大小写不同也不行**。`move = 1`、`MOVE = 1`、`MyMove` 都会与保留名冲突。
 - 使用前若不确定某个名字是否保留，用 `lookup_command` 查这个名字——若返回同名指令/系统变量，即为保留字，必须换名。
 - 建议加前缀：`my_`、`usr_`、`g_`，或用领域名词（`step_count`、`axis_done`、`cycle_index`）。
-- 常见保留名：`VR`、`TABLE`、`AXIS`、`OP`、`IN`、`DP`、`DPOS`、`MPOS`、`MARK`、`SERVO`、`WDOG`、`BASE`、`SPEED`、`ACCEL`、`DECEL`、`CREEP`、`FE_LIMIT`、`ATYPE`、`UNITS`、`CONNECT`、`MOVE`、`MOVEABS`、`MOVE_TABLE`、`DATUM`、`DATUM_OFFSET`、`CANCEL`、`RAPIDSTOP`、`FORWARD`、`REVERSE`、`PRINT`、`FOR`、`NEXT`、`IF`、`THEN`、`ELSEIF`、`ELSE`、`ENDIF`、`WHILE`、`WEND`、`REPEAT`、`UNTIL`、`GOTO`、`GOSUB`、`RETURN`、`GLOBAL`、`LOCAL`、`DIM`、`CONST`、`SUB`、`END SUB`、`PAUSE`、`HALT`、`STOP`、`TRIGGER`，以及内置函数 `SIN`、`COS`、`ABS`、`INT`、`MAX`、`MIN`、`SQRT`、`RAND`、`BIT`、`LEN`、`INSTR`、`MID`、`LEFT`、`RIGHT`、`VAL`、`STR`、`ATAN` 等。
+- 常见保留名：`VR`、`TABLE`、`AXIS`、`OP`、`IN`、`DP`、`DPOS`、`MPOS`、`MARK`、`SERVO`、`WDOG`、`BASE`、`SPEED`、`ACCEL`、`DECEL`、`CREEP`、`FE_LIMIT`、`ATYPE`、`UNITS`、`CONNECT`、`MOVE`、`MOVEABS`、`MOVE_TABLE`、`DATUM`、`DATUM_OFFSET`、`CANCEL`、`RAPIDSTOP`、`FORWARD`、`REVERSE`、`PRINT`、`FOR`、`NEXT`、`IF`、`THEN`、`ELSEIF`、`ELSE`、`ENDIF`、`WHILE`、`WEND`、`REPEAT`、`UNTIL`、`GOTO`、`GOSUB`、`RETURN`、`GLOBAL`、`LOCAL`、`DIM`、`CONST`、`SUB`、`END SUB`、`PAUSE`、`HALT`、`STOP`、`TRIGGER`，以及内置函数 `SIN`、`COS`、`ABS`、`INT`、`MAX`、`MIN`、`SQR`、`RAND`、`BIT`、`LEN`、`INSTR`、`MID`、`LEFT`、`RIGHT`、`VAL`、`TOSTR`、`ATAN` 等。
 
 ## 规范示例（RTBasic 风格）
 
@@ -140,9 +140,9 @@ PRINT "DPOS = "; DPOS
 ' 带超时的移动保护（避免死等）
 BASE(0)
 MOVE(500)
-t = TIME
-WHILE IN_POS = 0
-    IF TIME - t > 5000 THEN
+t = TICKS           ' 毫秒计时
+WHILE AXISEMG_IN = 0
+    IF TICKS - t > 5000 THEN
         RAPIDSTOP       ' 超时急停
         PRINT "move timeout"
         RETURN
