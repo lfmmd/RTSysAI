@@ -928,6 +928,19 @@ namespace RTSys.PlugIn
             try
             {
                 var view = new ChatPanel();
+                // 宿主目前未提供可读取主题色的接口，直接使用与 RTSys 深色风格接近的兜底主题。
+                // ApplyTheme 内部已 try/catch，失败仅写日志，不影响视图创建。
+                try
+                {
+                    view.ApplyTheme(
+                        System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E),
+                        System.Windows.Media.Color.FromRgb(0xF0, 0xF0, 0xF0),
+                        System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD7));
+                }
+                catch (Exception themeEx)
+                {
+                    PlugInLog.LogException("CreateViewCore ApplyTheme", themeEx);
+                }
                 // Backup handler for UI thread unhandled exceptions (CreateViewCore runs on UI thread),
                 // preventing them from crashing the RTSys process.
                 System.Windows.Threading.Dispatcher.CurrentDispatcher.UnhandledException += (s, e) =>

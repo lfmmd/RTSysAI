@@ -82,6 +82,51 @@ namespace RTSys.PlugIn
             }
         }
 
+        /// <summary>
+        /// 应用主题色（背景 / 前景 / 强调色）。全部为尽力而为，失败仅记录日志；
+        /// 宿主未提供主题时由调用方传入兜底深色。
+        /// </summary>
+        internal void ApplyTheme(Color background, Color foreground, Color accent)
+        {
+            try
+            {
+                var bgBrush = new SolidColorBrush(background);
+                var fgBrush = new SolidColorBrush(foreground);
+                var accentBrush = new SolidColorBrush(accent);
+
+                Background = bgBrush;
+                if (_scrollViewer != null)
+                {
+                    _scrollViewer.Background = bgBrush;
+                    var items = _scrollViewer.Content as Control;
+                    if (items != null)
+                    {
+                        items.Background = bgBrush;
+                        items.Foreground = fgBrush;
+                    }
+                }
+                if (_inputBox != null)
+                {
+                    _inputBox.Background = bgBrush;
+                    _inputBox.Foreground = fgBrush;
+                }
+                if (_sendBtn != null)
+                {
+                    _sendBtn.Background = accentBrush;
+                    _sendBtn.Foreground = fgBrush;
+                }
+                if (_statusInfo != null)
+                {
+                    _statusInfo.Foreground = fgBrush;
+                    _statusInfo.Opacity = 0.65;
+                }
+            }
+            catch (Exception ex)
+            {
+                try { PlugInLog.LogException("ChatPanel.ApplyTheme", ex); } catch { }
+            }
+        }
+
         // --- Oscilloscope pattern: static factory ---
         private static readonly ToolPositionSettings _defaultPosition = new ToolPositionSettings(SizeToContent.Manual)
         {
@@ -1017,6 +1062,29 @@ namespace RTSys.PlugIn
 
             var panel = new StackPanel { Margin = new Thickness(16) };
 
+            // RTSys controller IP（用于连接 ZMotion 控制器）
+            panel.Children.Add(MakeLabel("控制器 IP (RTSys)"));
+            var rtsysIpBox = new TextBox
+            {
+                Text = LoadConfigValue("RTSysIP"),
+                Height = 28,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 2),
+                Background = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                Padding = new Thickness(6, 0, 6, 0),
+                ToolTip = "192.168.1.100"
+            };
+            panel.Children.Add(rtsysIpBox);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "用于连接 ZMotion 控制器，例如 192.168.1.100",
+                Foreground = Brushes.Gray,
+                FontSize = 11,
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
             // API Key (masked)
             panel.Children.Add(MakeLabel(Lang.S("ApiKey")));
             var keyBox = new PasswordBox
@@ -1291,7 +1359,16 @@ namespace RTSys.PlugIn
                 int budget = AiService.BudgetTokens;
                 int.TryParse(budgetBox.Text, out budget);
                 _ai.SaveConfig(key, model, url, showStatusCheck.IsChecked, includeImagesCheck.IsChecked, controllerValidationCheck.IsChecked, enableThinkingCheck.IsChecked, budget, showThinkingCheck.IsChecked, memoryEnabledCheck.IsChecked, localizeThinkingCheck.IsChecked, useChineseDocsCheck.IsChecked, lightModel, ((ComboBoxItem)dialectBox.SelectedItem)?.Tag as string);
+                var rtsysIp = rtsysIpBox.Text.Trim();
+                if (rtsysIp.Length > 0 && !IsLikelyIPv4(rtsysIp))
+                {
+                    MessageBox.Show(win, "控制器 IP 格式看起来不像 IPv4，仍将按输入保存：" + rtsysIp,
+                        "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                SaveRTSysIp(rtsysIp);
                 _messages.Add(new ChatMessage("System", Lang.S("SettingsSaved")));
+                _messages.Add(new ChatMessage("System",
+                    string.IsNullOrEmpty(rtsysIp) ? "控制器 IP 已清空" : "控制器 IP 已保存: " + rtsysIp));
                 _scrollViewer.ScrollToEnd();
                 win.DialogResult = true;
             };
@@ -1406,6 +1483,47 @@ namespace RTSys.PlugIn
             if (key == "apiUrl") return "https://api.deepseek.com/anthropic";
             if (key == "model") return "claude-sonnet-4-20250514";
             return "";
+        }
+
+        /// <summary>
+        /// 把 RTSysIP 写入 config.json：先读出全部现有键再只改 RTSysIP 后写回，
+        /// 保证其它配置项（apiKey/apiUrl/model 等）不丢失。文件不存在则新建。
+        /// </summary>
+        private static void SaveRTSysIp(string ip)
+        {
+            try
+            {
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RTSysAI");
+                var configPath = Path.Combine(dir, "config.json");
+                var cfg = new Dictionary<string, object>();
+                if (File.Exists(configPath))
+                {
+                    var text = File.ReadAllText(configPath);
+                    var loaded = _json.Deserialize<Dictionary<string, object>>(text);
+                    if (loaded != null) cfg = loaded;
+                }
+                cfg["RTSysIP"] = ip ?? "";
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(configPath, _json.Serialize(cfg));
+                PlugInLog.Log("SaveRTSysIp() RTSysIP=" + (ip ?? ""));
+            }
+            catch (Exception ex)
+            {
+                try { PlugInLog.LogException("ChatPanel.SaveRTSysIp", ex); } catch { }
+            }
+        }
+
+        /// <summary>粗略判断是否为 IPv4 点分十进制（仅用于提示，不阻断保存）。</summary>
+        private static bool IsLikelyIPv4(string s)
+        {
+            var parts = s.Split('.');
+            if (parts.Length != 4) return false;
+            foreach (var p in parts)
+            {
+                int v;
+                if (!int.TryParse(p, out v) || v < 0 || v > 255) return false;
+            }
+            return true;
         }
 
         // ---- History Dialog ----
