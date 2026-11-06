@@ -11,6 +11,7 @@ setlocal enabledelayedexpansion
 set "PROJECT_ROOT=%~dp0"
 set "ADAPTER_DIR=%PROJECT_ROOT%PlugInAdapter"
 set "SHIM_DIR=%PROJECT_ROOT%PlugInNativeShim"
+set "WORKER_DIR=%PROJECT_ROOT%PlugInWorker"
 
 REM RTSys 安装目录（按需修改）
 set "RTSYS_DIR=%USERPROFILE%\Desktop\RTSys"
@@ -25,7 +26,7 @@ echo.
 REM ---------------------------------------------------------------------------
 REM 1) 定位 VS 开发环境（提供 msbuild / cl / 引用程序集）
 REM ---------------------------------------------------------------------------
-echo [1/4] 定位 Visual Studio 开发环境...
+echo [1/5] 定位 Visual Studio 开发环境...
 
 set "VSWHERE="
 for %%V in (
@@ -55,7 +56,7 @@ if errorlevel 1 (
 REM ---------------------------------------------------------------------------
 REM 2) 编译 C# 托管库
 REM ---------------------------------------------------------------------------
-echo [2/4] 编译 C# 托管库 (PlugInAdapter)...
+echo [2/5] 编译 C# 托管库 (PlugInAdapter)...
 
 pushd "%ADAPTER_DIR%"
 msbuild "PlugInAdapter.csproj" /p:Configuration=Release /p:Platform=x86 /nologo /v:minimal
@@ -71,7 +72,7 @@ echo       OK: PlugInAdapter\bin\Release\PlugInAdapter.dll
 REM ---------------------------------------------------------------------------
 REM 3) 编译 C++/CLI 原生 shim
 REM ---------------------------------------------------------------------------
-echo [3/4] 编译 C++/CLI 原生 shim (PlugInNativeShim)...
+echo [3/5] 编译 C++/CLI 原生 shim (PlugInNativeShim)...
 
 pushd "%SHIM_DIR%"
 msbuild "PlugInNativeShim.vcxproj" /p:Configuration=Release /p:Platform=Win32 /nologo /v:minimal
@@ -85,14 +86,38 @@ if not "%SHIMBUILD_RESULT%"=="0" (
 echo       OK: PlugInNativeShim\Release\PlugInNativeShim.dll
 
 REM ---------------------------------------------------------------------------
-REM 4) 部署（可选）
+REM 4) 编译 C# worker 进程（运行在 RTSys.exe 之外，承载全部 AI 业务逻辑）
+REM ---------------------------------------------------------------------------
+echo [4/5] 编译 C# worker (PlugInWorker)...
+
+pushd "%WORKER_DIR%"
+msbuild "PlugInWorker.csproj" /p:Configuration=Release /p:Platform=x86 /nologo /v:minimal
+set "WORKERBUILD_RESULT=%ERRORLEVEL%"
+popd
+
+if not "%WORKERBUILD_RESULT%"=="0" (
+    echo [错误] Worker 编译失败
+    exit /b %WORKERBUILD_RESULT%
+)
+echo       OK: PlugInWorker\bin\Release\RTSysPlugInWorker.exe
+
+REM ---------------------------------------------------------------------------
+REM 5) 部署（可选）
 REM ---------------------------------------------------------------------------
 if /i "%~1"=="deploy" (
-    echo [4/4] 部署到 %DEPLOY_PATH% ...
+    echo [5/5] 部署到 %DEPLOY_PATH% ...
     if not exist "%DEPLOY_PATH%" mkdir "%DEPLOY_PATH%"
 
     copy /Y "%SHIM_DIR%\Release\PlugInNativeShim.dll" "%DEPLOY_PATH%\" >nul
     copy /Y "%ADAPTER_DIR%\bin\Release\PlugInAdapter.dll" "%DEPLOY_PATH%\" >nul
+
+    REM worker 进程及其运行时依赖（skills 数据、DLL 等随进程同级部署）
+    copy /Y "%WORKER_DIR%\bin\Release\RTSysPlugInWorker.exe" "%DEPLOY_PATH%\" >nul
+    copy /Y "%WORKER_DIR%\bin\Release\RTSysPlugInWorker.exe.config" "%DEPLOY_PATH%\" >nul
+    copy /Y "%WORKER_DIR%\bin\Release\RTSysPlugInWorker.pdb" "%DEPLOY_PATH%\" >nul 2>nul
+
+    REM 技能数据（RTBasic 参考库 + 提示词 + safe-coding 规则）
+    xcopy "%WORKER_DIR%\skills\*" "%DEPLOY_PATH%\skills\" /E /I /Y >nul
 
     REM 依赖的外部程序集（若存在）
     for %%F in (
@@ -106,7 +131,7 @@ if /i "%~1"=="deploy" (
     echo.
     echo       提示: 若 RTSys 正在运行，请先关闭再启动以加载新插件。
 ) else (
-    echo [4/4] 跳过部署（使用 build_deploy.bat deploy 执行部署）
+    echo [5/5] 跳过部署（使用 build_deploy.bat deploy 执行部署）
 )
 
 echo.

@@ -1310,8 +1310,7 @@ namespace RTSys.PlugIn
                 ToolTip = Lang.S("DialectModeDesc")
             };
             dialectBox.Items.Add(new ComboBoxItem { Content = Lang.S("DialectAuto"), Tag = "auto" });
-            dialectBox.Items.Add(new ComboBoxItem { Content = "TrioBASIC", Tag = "triobasic" });
-            dialectBox.Items.Add(new ComboBoxItem { Content = "IEC ST", Tag = "iec" });
+            dialectBox.Items.Add(new ComboBoxItem { Content = "RTBasic", Tag = "rtbasic" });
             var curDialect = _ai.DialectMode ?? "auto";
             for (int i = 0; i < dialectBox.Items.Count; i++)
             {
@@ -1336,7 +1335,7 @@ namespace RTSys.PlugIn
             {
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 0, 0, 0),
-                Text = _ai.SkillsInitialized ? "已释放" : "",
+                Text = _ai.SkillsInitialized ? "已初始化" : "",
                 Foreground = _ai.SkillsInitialized
                     ? new SolidColorBrush(Color.FromRgb(0, 200, 0))
                     : Brushes.Gray
@@ -1345,7 +1344,7 @@ namespace RTSys.PlugIn
             {
                 if (_ai.SkillsInitialized)
                 {
-                    var r = MessageBox.Show(win, "Skill 数据已释放，是否覆盖？", "确认覆盖",
+                    var r = MessageBox.Show(win, "Skill 数据已初始化，是否覆盖？", "确认覆盖",
                         MessageBoxButton.YesNo, MessageBoxImage.Question);
                     if (r != MessageBoxResult.Yes) return;
                 }
@@ -1356,7 +1355,7 @@ namespace RTSys.PlugIn
                     return;
                 }
                 MessageBox.Show(win, "Skill 数据初始化完成。", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
-                skillStatus.Text = "已释放";
+                skillStatus.Text = "已初始化";
                 skillStatus.Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 0));
             };
             DockPanel.SetDock(initBtn, Dock.Left);

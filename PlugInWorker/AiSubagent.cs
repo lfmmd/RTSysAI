@@ -149,11 +149,6 @@ namespace RTSys.PlugIn
                        "You are working on RTBasic programs (RTSys / ZMotion controller). Verify/research with lookup_command(query, library=\"rtbasic\"). " +
                        "RTBasic is a proprietary BASIC dialect — it drifts to VB/VB.NET/QBasic/PowerBASIC. " +
                        "Do NOT trust your memory of \"BASIC\"; verify every command/declaration (motion MOVE/MOVEABS/CONNECT/WAIT IDLE, axis params SPEED/ACCEL/WDOG/UNITS/BASE) against the reference.";
-            if (dialect == "iec")
-                return "## Current dialect: IEC ST\n\n" +
-                       "You are working on IEC ST programs. Verify/research with lookup_command(query, library=\"iec\") and get_iec_task_detail. " +
-                       "IEC uses its OWN TC_* motion blocks (TC_MOVEABS, TC_MOVECIRC, TC_CONNECT, TC_CAM...) — NEVER PLCOpen MC_* (MC_MoveAbsolute etc.). " +
-                       "Domain FBs (PID, RAMP, ALARM_A, AVERAGE...) have exact pins — verify each via lookup.";
             return null;
         }
 

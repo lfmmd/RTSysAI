@@ -55,6 +55,11 @@ namespace RTSys.PlugIn.Worker
 
             try
             {
+                // 启动自动初始化 Skill 数据：首次运行时把打包的 skills\ 复制到 %APPDATA%\RTSysAI\skills。
+                // 不做这一步的话，AI 启动后没有任何 RTBasic 参考库可用（lookup_command 全部落空）。
+                // 失败只记日志，不阻断 worker 启动（设置面板里仍可手动点"初始化 Skill 数据"）。
+                TryInitializeSkills();
+
                 // 启动 ApiServer（复用现有 ApiServer.cs，全部在 worker 进程内）
                 var server = new ApiServer();
                 server.Start();
@@ -95,6 +100,35 @@ namespace RTSys.PlugIn.Worker
             }
 
             return 0;
+        }
+
+        /// <summary>
+        /// 启动时自动初始化 Skill 数据：把 worker 打包目录下的 skills\ 复制到 %APPDATA%\RTSysAI\skills。
+        /// 若打包目录不存在或已初始化过，则静默跳过；只记日志，不抛异常（不阻断 worker 启动）。
+        /// </summary>
+        private static void TryInitializeSkills()
+        {
+            try
+            {
+                var svc = new AiService(); // 调用其 InitializeSkills
+                var err = svc.InitializeSkills();
+                if (string.IsNullOrEmpty(err))
+                {
+                    PlugInLog.Log("Skill 数据自动初始化完成");
+                }
+                else if (!err.Contains("未找到 skills 文件夹"))
+                {
+                    PlugInLog.Log($"Skill 自动初始化失败: {err}");
+                }
+                else
+                {
+                    PlugInLog.Log("Skill 自动初始化跳过：打包目录下无 skills 文件夹（开发环境/未部署时正常）");
+                }
+            }
+            catch (Exception ex)
+            {
+                try { PlugInLog.LogException("Skill 自动初始化异常", ex); } catch { }
+            }
         }
 
         private static int ResolvePort(string[] args)

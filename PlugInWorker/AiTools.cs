@@ -553,16 +553,16 @@ namespace RTSys.PlugIn
                     ("autorunProcess", "Process number for auto-run", true),
                     ("processAffinity", "Process affinity (process slot to run on)", true)
                 )),
-                Tool("lookup_command", "Look up command/keyword reference. Default returns name + signature + description (lightweight). Use full=true for complete HTML. Use library to scope to triobasic/iec/plcopen.", Props(
-                    ("query", "Command name or keyword to search (e.g. MOVE, MC_MoveAbsolute, FOR)", false),
+                Tool("lookup_command", "Look up command/keyword reference. Default returns name + signature + description (lightweight). Use full=true for complete HTML. Use library to scope to rtbasic.", Props(
+                    ("query", "Command name or keyword to search (e.g. MOVE, MOVEABS, UNITS)", false),
                     ("full", "Set to \"true\" to load complete HTML documentation (heavier, use only when examples or detailed parameters are needed)", true),
-                    ("library", "Scope search to: triobasic | iec | plcopen (default: search all libraries)", true)
+                    ("library", "Scope search to: rtbasic (default: search rtbasic library)", true)
                 )),
                 Tool("read_skill", "Load full markdown content of a skill listed in the 'Available Skills' section of the system prompt. BLOCKING REQUIREMENT: when the user's request matches a skill's 'Use when:' description, invoke read_skill BEFORE writing any code or generating other response about the task. NEVER mention or claim to follow a skill without calling this tool first. Note: skills whose full body is already shown in the system prompt (e.g. 'Safe Coding Rules (MANDATORY)') are pre-loaded — do NOT re-read those.", Props(
                     ("name", "Skill name from Available Skills", false)
                 )),
                 Tool("discover_skills", "List available markdown skills with their name, description, and when_to_use trigger. Use this FIRST when you are unsure which skills exist or which one matches the user's task — cheaper than calling read_skill by trial and error. After finding a relevant skill, call read_skill(name) to load its full body.", Props(
-                    ("category", "Filter by category (general | triobasic | iec | plcopen). null/empty returns all skills.", true)
+                    ("category", "Filter by category (general | rtbasic). null/empty returns all skills.", true)
                 )),
                 Tool("search_code", "Search for a text pattern across all programs in the project. Returns matching lines with line numbers.", Props(
                     ("query", "Search text or pattern", false),
@@ -606,13 +606,13 @@ namespace RTSys.PlugIn
                 Tool("get_events", "Pull subscribed controller events since given UTC ticks (program_state, connection_state, async_message, io_changed, compile_state)", Props(
                     ("since", "UTC ticks; default 0 = all buffered events", true)
                 )),
-                Tool("list_breakpoints", "List breakpoints in a TrioBASIC program (line numbers)", Props("name", "Program name")),
-                Tool("set_breakpoint", "Set or clear a breakpoint in a TrioBASIC program (requires confirmation)", Props(
+                Tool("list_breakpoints", "List breakpoints in an RTBasic program (line numbers)", Props("name", "Program name")),
+                Tool("set_breakpoint", "Set or clear a breakpoint in an RTBasic program (requires confirmation)", Props(
                     ("name", "Program name", false),
                     ("line", "1-based line number", false),
                     ("enable", "true to set, false to clear (default true)", true)
                 )),
-                Tool("clear_all_breakpoints", "Remove all breakpoints in a TrioBASIC program (requires confirmation)", Props("name", "Program name")),
+                Tool("clear_all_breakpoints", "Remove all breakpoints in an RTBasic program (requires confirmation)", Props("name", "Program name")),
                 Tool("read_drive_param", "Read a drive parameter via DRIVE_READ", Props(
                     ("axis", "Axis number", false),
                     ("address", "Hex drive parameter address", false),
