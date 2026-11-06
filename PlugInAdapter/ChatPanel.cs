@@ -865,7 +865,9 @@ namespace RTSys.PlugIn
                 Height = 380,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40))
+                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                // 子对话框不应在任务栏留下独立按钮（RTSys 下 owner 可能为 null）
+                ShowInTaskbar = false
             };
 
             var panel = new StackPanel { Margin = new Thickness(16) };
@@ -954,7 +956,8 @@ namespace RTSys.PlugIn
                 Height = 450,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40))
+                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                ShowInTaskbar = false
             };
 
             var panel = new StackPanel { Margin = new Thickness(16) };
@@ -1057,7 +1060,9 @@ namespace RTSys.PlugIn
                 Height = 600,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40))
+                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                // 关键：不显示任务栏按钮，否则关闭后任务栏残留可切换窗口
+                ShowInTaskbar = false
             };
 
             var panel = new StackPanel { Margin = new Thickness(16) };
@@ -1543,7 +1548,8 @@ namespace RTSys.PlugIn
                 Width = 420,
                 Height = 450,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40))
+                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                ShowInTaskbar = false
             };
 
             var dock = new DockPanel();
