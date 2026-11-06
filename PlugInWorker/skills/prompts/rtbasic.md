@@ -63,27 +63,27 @@ RTBasic **不区分大小写**，关键字惯用大写。
 
 | WRONG（其它 BASIC 的写法）              | CORRECT（RTBasic）                                                        |
 |----------------------------------------|---------------------------------------------------------------------------|
-| `Dim x As Integer`                      | `DIM x`（RTBasic 声明形式不同，先查 `DIM` 确认类型写法）                   |
-| `Dim arr(10) As Integer`                | `DIM arr(10)` —— 数组长度写在括号里，无 `As` 子句                          |
-| `Function F(a,b) As Integer ... End Function` | `SUB F(a,b) ... END SUB`（RTBasic 无 Function 关键字）              |
-| `Sub S(x) ... End Sub`                  | `SUB S(x) ... END SUB` —— 关键字是 `END SUB`（与 `ENDIF` 拼写风格一致）     |
-| `Class` / `Module` / `Imports` / `Option Explicit` | （不存在）—— RTBasic 是平铺结构，无 OOP                       |
-| `If x = 1 Then` ... `End If`            | `IF x = 1 THEN` ... `ENDIF`（连写一个词）                                  |
-| `ElseIf` / `Else If`                    | `ELSEIF`（连写一个词）                                                      |
-| `For i = 1 To 10 Step 2` ... `Next`     | `FOR i = 1 TO 10 STEP 2` ... `NEXT i`（NEXT 后带变量名）                   |
-| `For Each x In arr`                     | （无 For Each）—— 用下标 `FOR` 循环                                         |
-| `Do While cond` ... `Loop`              | `WHILE cond` ... `WEND` 或 `REPEAT` ... `UNTIL cond`                        |
-| `Exit For` / `Exit Sub`                 | （无 Exit）—— 用条件 `GOTO` 跳出，或 `RETURN`                              |
-| `Try ... Catch ... End Try`             | （无 Try/Catch）—— 调用后 `IF err <> 0 THEN` 判断，或用状态位检查          |
-| `Console.WriteLine(x)` / `Debug.Print`  | `PRINT x`（也可用 `? x`）                                                   |
-| `MsgBox(...)` / `InputBox(...)`         | （不存在）—— 输出只能用 `PRINT`                                            |
-| `Math.Sqrt(x)` / `Math.Abs(x)` / `Math.PI` | `SQR(x)` / `ABS(x)` / `4 * ATAN(1)`                                 |
-| `x.ToString()`                          | `TOSTR(x)`                                                                  |
-| `Integer.Parse("123")` / `CInt(...)`    | `VAL("123")`                                                                |
-| `Const PI As Double = 3.14`             | `CONST PI = 3.14`（无 As 子句）                                             |
+| `dim x as integer`                      | `DIM x`（RTBasic 声明形式不同，先查 `DIM` 确认类型写法）                   |
+| `dim arr(10) as integer`                | `DIM arr(10)` —— 数组长度写在括号里，无 `As` 子句                          |
+| `function f(a,b) as integer ... end function` | `SUB F(a,b) ... END SUB`（RTBasic 无 Function 关键字）              |
+| `sub s(x) ... end sub`                  | `SUB S(x) ... END SUB` —— 关键字是 `END SUB`（与 `ENDIF` 拼写风格一致）     |
+| `class` / `module` / `imports` / `option explicit` | （不存在）—— RTBasic 是平铺结构，无 OOP                       |
+| `if x = 1 then` ... `end if`            | `IF x = 1 THEN` ... `ENDIF`（连写一个词）                                  |
+| `elseif` / `else if`                    | `ELSEIF`（连写一个词）                                                      |
+| `for i = 1 to 10 step 2` ... `next`     | `FOR i = 1 TO 10 STEP 2` ... `NEXT i`（NEXT 后带变量名）                   |
+| `for each x in arr`                     | （无 For Each）—— 用下标 `FOR` 循环                                         |
+| `do while cond` ... `loop`              | `WHILE cond` ... `WEND` 或 `REPEAT` ... `UNTIL cond`                        |
+| `exit for` / `exit sub`                 | （无 Exit）—— 用条件 `GOTO` 跳出，或 `RETURN`                              |
+| `try ... catch ... end try`             | （无 Try/Catch）—— 调用后 `IF err <> 0 THEN` 判断，或用状态位检查          |
+| `console.writeline(x)` / `debug.print`  | `PRINT x`（也可用 `? x`）                                                   |
+| `msgbox(...)` / `inputbox(...)`         | （不存在）—— 输出只能用 `PRINT`                                            |
+| `math.sqrt(x)` / `math.abs(x)` / `math.pi` | `SQR(x)` / `ABS(x)` / `4 * ATAN(1)`                                 |
+| `x.tostring()`                          | `TOSTR(x)`                                                                  |
+| `integer.parse("123")` / `cint(...)`    | `VAL("123")`                                                                |
+| `const pi as double = 3.14`             | `CONST PI = 3.14`（无 As 子句）                                             |
 | `==` / `!=` 比较                         | `=` 既是赋值也是相等；不等用 `<>`                                            |
-| `REM` 注释                               | `' 注释`                                                                     |
-| `WAIT UNTIL cond`                       | RTBasic **也有** `WAIT UNTIL cond`；等待运动结束另有 `WAIT IDLE` / `WAIT LOADED` |
+| `REM`（其它 BASIC 的注释写法）           | RTBasic **没有** `REM` —— 注释只用 `'`                                     |
+| `WAIT UNTIL cond`（IE C 习惯）          | RTBasic **有** `WAIT UNTIL cond`；等待运动结束用 `WAIT IDLE` / `WAIT LOADED` |
 
 任何一行不确定，就先 `lookup_command`。
 
@@ -118,7 +118,8 @@ RTBasic 保留系统变量、运动指令、I/O 关键字与内置函数名，�
 - 严禁把用户变量、标签、子程序名命名为任何系统变量或内置函数名，**哪怕大小写不同也不行**。`move = 1`、`MOVE = 1`、`MyMove` 都会与保留名冲突。
 - 使用前若不确定某个名字是否保留，用 `lookup_command` 查这个名字——若返回同名指令/系统变量，即为保留字，必须换名。
 - 建议加前缀：`my_`、`usr_`、`g_`，或用领域名词（`step_count`、`axis_done`、`cycle_index`）。
-- 常见保留名：`VR`、`TABLE`、`AXIS`、`OP`、`IN`、`DP`、`DPOS`、`MPOS`、`MARK`、`SERVO`、`WDOG`、`BASE`、`SPEED`、`ACCEL`、`DECEL`、`CREEP`、`FE_LIMIT`、`ATYPE`、`UNITS`、`CONNECT`、`MOVE`、`MOVEABS`、`MOVE_TABLE`、`DATUM`、`DATUM_OFFSET`、`CANCEL`、`RAPIDSTOP`、`FORWARD`、`REVERSE`、`PRINT`、`FOR`、`NEXT`、`IF`、`THEN`、`ELSEIF`、`ELSE`、`ENDIF`、`WHILE`、`WEND`、`REPEAT`、`UNTIL`、`GOTO`、`GOSUB`、`RETURN`、`GLOBAL`、`LOCAL`、`DIM`、`CONST`、`SUB`、`END SUB`、`PAUSE`、`HALT`、`STOP`、`TRIGGER`，以及内置函数 `SIN`、`COS`、`ABS`、`INT`、`MAX`、`MIN`、`SQR`、`RAND`、`BIT`、`LEN`、`INSTR`、`MID`、`LEFT`、`RIGHT`、`VAL`、`TOSTR`、`ATAN` 等。
+- 常见保留名（**仅列参考库中确实存在的**）：`VR`、`TABLE`、`AXIS`、`OP`、`IN`、`DPOS`、`MPOS`、`MARK`、`SERVO`、`WDOG`、`BASE`、`SPEED`、`ACCEL`、`DECEL`、`CREEP`、`FE_LIMIT`、`ATYPE`、`UNITS`、`CONNECT`、`MOVE`、`MOVEABS`、`MOVE_TABLE`、`DATUM`、`DATUM_OFFSET`、`CANCEL`、`RAPIDSTOP`、`FORWARD`、`REVERSE`、`PRINT`、`FOR`、`NEXT`、`IF`、`THEN`、`ELSEIF`、`ELSE`、`ENDIF`、`WHILE`、`WEND`、`REPEAT`、`UNTIL`、`GOTO`、`GOSUB`、`RETURN`、`GLOBAL`、`LOCAL`、`DIM`、`CONST`、`SUB`、`END SUB`、`PAUSE`、`HALT`、`STOP`、`TRIGGER`，以及内置函数 `SIN`、`COS`、`TAN`、`ASIN`、`ACOS`、`ATAN`、`ATAN2`、`ABS`、`SQR`、`INT`、`FRAC`、`SGN`、`EXP`、`LN`、`LOG`、`VAL`、`TOSTR`、`STRLEN`、`STRFIND`、`STRCOMP`、`CHR`、`HEX` 等。
+- **这些名字在 RTBasic 里不存在，不要出现在代码里**：`REM`、`DO...LOOP`、`EXIT`、`MAX`、`MIN`、`RAND`、`BIT`、`LEN`、`INSTR`、`MID`、`LEFT`、`RIGHT`、`SQRT`、`STR`、`DP`、`OUT`、`HOME`、`RAPID`、`GEAR`、`FUNCTION`、`AS`（`DIM x AS type` 是错写法）。
 
 ## 规范示例（RTBasic 风格）
 

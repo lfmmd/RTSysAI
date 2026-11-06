@@ -164,6 +164,17 @@ namespace RTSys.PlugIn
                 return url + "/v1/messages";
             if (url.EndsWith("/anthropic/", StringComparison.OrdinalIgnoreCase))
                 return url + "v1/messages";
+
+            // 裸域名（如 https://token.sensenova.cn 或 https://token.sensenova.cn/）：
+            // 补全 Anthropic 消息端点路径。否则会 POST 到网站根路径并收到 404，
+            // 被上层当成网络错误反复重试。
+            try
+            {
+                var uri = new Uri(url);
+                if (string.IsNullOrEmpty(uri.AbsolutePath) || uri.AbsolutePath == "/")
+                    return url.TrimEnd('/') + "/v1/messages";
+            }
+            catch { /* 非法 URL 原样返回，交由 HttpClient 报错 */ }
             return url;
         }
 
