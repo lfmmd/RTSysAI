@@ -1,0 +1,1134 @@
+{
+ "source": "ExtMainHmi.dll static feature registration",
+ "count": 188,
+ "features": [
+  {
+   "id": 20030,
+   "name": "Sets the LCD screen number.",
+   "name_addr": "0x1004a448",
+   "code_addr": "0x10032086"
+  },
+  {
+   "id": 20013,
+   "name": "Display window title bar.",
+   "name_addr": "0x1004a48c",
+   "code_addr": "0x1003212b"
+  },
+  {
+   "id": 20014,
+   "name": "Height of the window title bar.",
+   "name_addr": "0x1004a4d0",
+   "code_addr": "0x100321cd"
+  },
+  {
+   "id": 20015,
+   "name": "Allow dragging by holding the mouse on the title bar.",
+   "name_addr": "0x1004a520",
+   "code_addr": "0x10032265"
+  },
+  {
+   "id": 20016,
+   "name": "Allow resizing by holding the mouse on the window edges or corners.",
+   "name_addr": "0x1004a598",
+   "code_addr": "0x100322fd"
+  },
+  {
+   "id": 20020,
+   "name": "Set the backlight time of the teaching box (min).",
+   "name_addr": "0x1004a630",
+   "code_addr": "0x100323ad"
+  },
+  {
+   "id": 20023,
+   "name": "Set the screen saver time for the tutorial box (min).",
+   "name_addr": "0x1004a6a0",
+   "code_addr": "0x10032442"
+  },
+  {
+   "id": 20024,
+   "name": "Sets the window number for RTHmi initial power-on display.",
+   "name_addr": "0x1004a720",
+   "code_addr": "0x100324d6"
+  },
+  {
+   "id": 20025,
+   "name": "Set the window number for RTHmi initial power-on display. The start top window o",
+   "name_addr": "0x1004a7b0",
+   "code_addr": "0x10032568"
+  },
+  {
+   "id": 20028,
+   "name": "The sub function that executes once the RTHmi file is started.",
+   "name_addr": "0x1004a8a0",
+   "code_addr": "0x1003260f"
+  },
+  {
+   "id": 20029,
+   "name": "The sub function that executes periodically after the RTHmi file is started.",
+   "name_addr": "0x1004a930",
+   "code_addr": "0x100326b4"
+  },
+  {
+   "id": 20034,
+   "name": "True: Use the control format text. False: Use text library format text.",
+   "name_addr": "0x1004a9e8",
+   "code_addr": "0x1003272b"
+  },
+  {
+   "id": 20035,
+   "name": "Compress the project image. New compression: lossless compression; Old compressi",
+   "name_addr": "0x1004aa90",
+   "code_addr": "0x100327e0"
+  },
+  {
+   "id": 20037,
+   "name": "Standard: HMI performance is better. High: The picture quality is better.",
+   "name_addr": "0x1004aba0",
+   "code_addr": "0x10032865"
+  },
+  {
+   "id": 20036,
+   "name": "Control text adaptive size.",
+   "name_addr": "0x1004ac4c",
+   "code_addr": "0x100328de"
+  },
+  {
+   "id": 20038,
+   "name": "Controls within the window should not exceed the bounds of the window.",
+   "name_addr": "0x1004aca0",
+   "code_addr": "0x100329a7"
+  },
+  {
+   "id": 20039,
+   "name": "Only the topmost window under the cursor processes mouse events per cycle.",
+   "name_addr": "0x1004ad48",
+   "code_addr": "0x10032a2a"
+  },
+  {
+   "id": 20001,
+   "name": "Specifies the number of the current window.",
+   "name_addr": "0x1004adf0",
+   "code_addr": "0x10032ae1"
+  },
+  {
+   "id": 20003,
+   "name": "Specifies the name of the current window.",
+   "name_addr": "0x1004ae58",
+   "code_addr": "0x10032b76"
+  },
+  {
+   "id": 20007,
+   "name": "One of them: Base Window, Pop Window, Menu Window, Soft Keyboard Window, Top Win",
+   "name_addr": "0x1004aeb8",
+   "code_addr": "0x10032c0b"
+  },
+  {
+   "id": 20006,
+   "name": "Specify whether the window is a monopoly window; Monopoly window can only operat",
+   "name_addr": "0x1004af70",
+   "code_addr": "0x10032ca2"
+  },
+  {
+   "id": 1000,
+   "name": "Specify the Object number.",
+   "name_addr": "0x1004b068",
+   "code_addr": "0x10032d3a"
+  },
+  {
+   "id": 1001,
+   "name": "Object display name.",
+   "name_addr": "0x1004b0ac",
+   "code_addr": "0x10032dcf"
+  },
+  {
+   "id": 1004,
+   "name": "Whether the control element is displayed, when the Valid Control is enabled, the",
+   "name_addr": "0x1004b138",
+   "code_addr": "0x10032e6a"
+  },
+  {
+   "id": 1021,
+   "name": "Whether the control element is displayed, when the Valid Control is enabled, the",
+   "name_addr": "0x1004b138",
+   "code_addr": "0x10032ee1"
+  },
+  {
+   "id": 1024,
+   "name": "The display or hiding of the component is controlled by the bit, which is displa",
+   "name_addr": "0x1004b228",
+   "code_addr": "0x10032f92"
+  },
+  {
+   "id": 1023,
+   "name": "Send a bit notification after modification (set True or False).",
+   "name_addr": "0x1004b350",
+   "code_addr": "0x10033019"
+  },
+  {
+   "id": 1073,
+   "name": "Whether to loop, whether to continuously trigger the timer.",
+   "name_addr": "0x1004b3d0",
+   "code_addr": "0x1003309a"
+  },
+  {
+   "id": 1074,
+   "name": "Trigger period of the timer.",
+   "name_addr": "0x1004b454",
+   "code_addr": "0x10033141"
+  },
+  {
+   "id": 1013,
+   "name": "The specified device.",
+   "name_addr": "0x1004b4a0",
+   "code_addr": "0x100331e3"
+  },
+  {
+   "id": 1012,
+   "name": "The specified device.",
+   "name_addr": "0x1004b4a0",
+   "code_addr": "0x1003346f"
+  },
+  {
+   "id": 1011,
+   "name": "The specified device.",
+   "name_addr": "0x1004b4a0",
+   "code_addr": "0x100336fb"
+  },
+  {
+   "id": 1014,
+   "name": "The specified device.",
+   "name_addr": "0x1004b4a0",
+   "code_addr": "0x10033988"
+  },
+  {
+   "id": 1019,
+   "name": "The specified device.",
+   "name_addr": "0x1004b4a0",
+   "code_addr": "0x10033c12"
+  },
+  {
+   "id": 20040,
+   "name": "The specified device.",
+   "name_addr": "0x1004b4a0",
+   "code_addr": "0x10033ea4"
+  },
+  {
+   "id": 20041,
+   "name": "The specified device.",
+   "name_addr": "0x1004b4a0",
+   "code_addr": "0x10034104"
+  },
+  {
+   "id": 1015,
+   "name": "Minimum keystroke time (ms).",
+   "name_addr": "0x1004b6e8",
+   "code_addr": "0x10034351"
+  },
+  {
+   "id": 1016,
+   "name": "Whether is the action when releasing.",
+   "name_addr": "0x1004b738",
+   "code_addr": "0x10034401"
+  },
+  {
+   "id": 1020,
+   "name": "Whether the numeric element enables input.",
+   "name_addr": "0x1004b790",
+   "code_addr": "0x100344a6"
+  },
+  {
+   "id": 1075,
+   "name": "Soft keyboard input display, generally used for keyboard Windows.",
+   "name_addr": "0x1004b7f8",
+   "code_addr": "0x10034548"
+  },
+  {
+   "id": 1090,
+   "name": "Indicates that the control is multiline text.",
+   "name_addr": "0x1004b888",
+   "code_addr": "0x100345ce"
+  },
+  {
+   "id": 1026,
+   "name": "Sets the length of the character element operation character. (0 to 1023)",
+   "name_addr": "0x1004b8f0",
+   "code_addr": "0x10034688"
+  },
+  {
+   "id": 1070,
+   "name": "The window number of the soft keyboard.",
+   "name_addr": "0x1004b990",
+   "code_addr": "0x10034725"
+  },
+  {
+   "id": 1160,
+   "name": "The function that makes the drop-down call.",
+   "name_addr": "0x1004b9f0",
+   "code_addr": "0x1003479c"
+  },
+  {
+   "id": 1161,
+   "name": "One of them: Pop down, Pop up.",
+   "name_addr": "0x1004ba54",
+   "code_addr": "0x1003486d"
+  },
+  {
+   "id": 1163,
+   "name": "Select the function to call.",
+   "name_addr": "0x1004baa0",
+   "code_addr": "0x10034912"
+  },
+  {
+   "id": 1162,
+   "name": "Line spacing, equal spacing up and down (0 to 100).",
+   "name_addr": "0x1004baf0",
+   "code_addr": "0x100349b4"
+  },
+  {
+   "id": 1165,
+   "name": "TRUE: allows the instruction to add items. FALSE: indicates the static length.",
+   "name_addr": "0x1004bb68",
+   "code_addr": "0x10034a56"
+  },
+  {
+   "id": 1166,
+   "name": "Dynamic item space size.",
+   "name_addr": "0x1004bc18",
+   "code_addr": "0x10034af8"
+  },
+  {
+   "id": 1205,
+   "name": "Function triggered on completion of modification.",
+   "name_addr": "0x1004bc60",
+   "code_addr": "0x10034ba9"
+  },
+  {
+   "id": 1352,
+   "name": "Function that is called when you double-click.",
+   "name_addr": "0x1004bcd8",
+   "code_addr": "0x10034c3f"
+  },
+  {
+   "id": 1212,
+   "name": "Set the blinking mode of BitState control.",
+   "name_addr": "0x1004bd48",
+   "code_addr": "0x10034cbd"
+  },
+  {
+   "id": 1213,
+   "name": "Set the blinking time(ms) of BitState control.",
+   "name_addr": "0x1004bdb0",
+   "code_addr": "0x10034d88"
+  },
+  {
+   "id": 1214,
+   "name": "Valid for GIF in Back PictureLib. 0: loop; >0: play count.",
+   "name_addr": "0x1004be20",
+   "code_addr": "0x10034e20"
+  },
+  {
+   "id": 1042,
+   "name": "Bind the physical keys on the teaching box (RTHmi help for keycode value lookup)",
+   "name_addr": "0x1004bea8",
+   "code_addr": "0x10034eb5"
+  },
+  {
+   "id": 1043,
+   "name": "Bind virtual key.",
+   "name_addr": "0x1004bf58",
+   "code_addr": "0x10034f4d"
+  },
+  {
+   "id": 1025,
+   "name": "Data type setting for a numeric element.",
+   "name_addr": "0x1004bf88",
+   "code_addr": "0x10034fe5"
+  },
+  {
+   "id": 1076,
+   "name": "The TABLE where the current component's data is located.",
+   "name_addr": "0x1004bfe8",
+   "code_addr": "0x1003507a"
+  },
+  {
+   "id": 1071,
+   "name": "The sub function that specifies the behavior of the component is explained in RT",
+   "name_addr": "0x1004c068",
+   "code_addr": "0x1003510f"
+  },
+  {
+   "id": 1072,
+   "name": "The sub function that specifies the behavior of the component is explained in RT",
+   "name_addr": "0x1004c068",
+   "code_addr": "0x100351a6"
+  },
+  {
+   "id": 1250,
+   "name": "Set the channel number of the file3 (0 to 7).",
+   "name_addr": "0x1004c140",
+   "code_addr": "0x10035225"
+  },
+  {
+   "id": 1251,
+   "name": "Display line numbers.",
+   "name_addr": "0x1004c1ac",
+   "code_addr": "0x100352d6"
+  },
+  {
+   "id": 1252,
+   "name": "Line number position width.",
+   "name_addr": "0x1004c1ec",
+   "code_addr": "0x1003536d"
+  },
+  {
+   "id": 1253,
+   "name": "Display file Information.",
+   "name_addr": "0x1004c230",
+   "code_addr": "0x10035404"
+  },
+  {
+   "id": 1060,
+   "name": "Type of event.",
+   "name_addr": "0x1004c270",
+   "code_addr": "0x100354a9"
+  },
+  {
+   "id": 1061,
+   "name": "Level of event.",
+   "name_addr": "0x1004c298",
+   "code_addr": "0x10035543"
+  },
+  {
+   "id": 1062,
+   "name": "The conditions that trigger the event.",
+   "name_addr": "0x1004c2d0",
+   "code_addr": "0x100355e0"
+  },
+  {
+   "id": 1063,
+   "name": "Comparison value.",
+   "name_addr": "0x1004c334",
+   "code_addr": "0x10035675"
+  },
+  {
+   "id": 1066,
+   "name": "Write data on confirmation.",
+   "name_addr": "0x1004c364",
+   "code_addr": "0x100356fa"
+  },
+  {
+   "id": 1100,
+   "name": "Set the width of the drawn line segment (1 to 20).",
+   "name_addr": "0x1004c3a8",
+   "code_addr": "0x100357be"
+  },
+  {
+   "id": 1101,
+   "name": "Select the style of the line segment that you want to draw.",
+   "name_addr": "0x1004c420",
+   "code_addr": "0x10035856"
+  },
+  {
+   "id": 1102,
+   "name": "Select the starting shape of the line segment.",
+   "name_addr": "0x1004c4b0",
+   "code_addr": "0x100358ed"
+  },
+  {
+   "id": 1103,
+   "name": "Select the starting size of the line segment.",
+   "name_addr": "0x1004c528",
+   "code_addr": "0x10035982"
+  },
+  {
+   "id": 1104,
+   "name": "Select the endpoint shape of the line segment.",
+   "name_addr": "0x1004c598",
+   "code_addr": "0x10035a07"
+  },
+  {
+   "id": 1105,
+   "name": "Select the endpoint size of the line segment.",
+   "name_addr": "0x1004c608",
+   "code_addr": "0x10035ab9"
+  },
+  {
+   "id": 1106,
+   "name": "Select the style to fill.",
+   "name_addr": "0x1004c670",
+   "code_addr": "0x10035b5e"
+  },
+  {
+   "id": 1107,
+   "name": "Sets the color of the fill style.",
+   "name_addr": "0x1004c6b0",
+   "code_addr": "0x10035bf3"
+  },
+  {
+   "id": 1108,
+   "name": "One of them: Horizontal, Vertical.",
+   "name_addr": "0x1004c700",
+   "code_addr": "0x10035c88"
+  },
+  {
+   "id": 1109,
+   "name": "Sets the number of internal segments of the scale.",
+   "name_addr": "0x1004c758",
+   "code_addr": "0x10035d0e"
+  },
+  {
+   "id": 1120,
+   "name": "Sets the number of rows in the table.",
+   "name_addr": "0x1004c7c8",
+   "code_addr": "0x10035daa"
+  },
+  {
+   "id": 1121,
+   "name": "Sets the number of columns in the table.",
+   "name_addr": "0x1004c818",
+   "code_addr": "0x10035e21"
+  },
+  {
+   "id": 1122,
+   "name": "Sets the color of the box outside the table.",
+   "name_addr": "0x1004c880",
+   "code_addr": "0x10035ecb"
+  },
+  {
+   "id": 1123,
+   "name": "Sets the color of the box outside the table.",
+   "name_addr": "0x1004c880",
+   "code_addr": "0x10035f65"
+  },
+  {
+   "id": 1124,
+   "name": "Set the line width of the outer box of the table (1 to 20).",
+   "name_addr": "0x1004c8f0",
+   "code_addr": "0x10035ffc"
+  },
+  {
+   "id": 1125,
+   "name": "Select the style of the line segment that draws the outer box.",
+   "name_addr": "0x1004c980",
+   "code_addr": "0x10036092"
+  },
+  {
+   "id": 1126,
+   "name": "Sets the color of the table grid.",
+   "name_addr": "0x1004ca10",
+   "code_addr": "0x10036125"
+  },
+  {
+   "id": 1127,
+   "name": "Set the line segment width of the table grid (1 to 20).",
+   "name_addr": "0x1004ca68",
+   "code_addr": "0x100361bc"
+  },
+  {
+   "id": 1128,
+   "name": "Select the style of the line segment to draw the grid box.",
+   "name_addr": "0x1004cae8",
+   "code_addr": "0x10036244"
+  },
+  {
+   "id": 1129,
+   "name": "Select the alignment of the table contents.",
+   "name_addr": "0x1004cb70",
+   "code_addr": "0x100362ce"
+  },
+  {
+   "id": 1140,
+   "name": "Whether to use the original size of the image.",
+   "name_addr": "0x1004cbd8",
+   "code_addr": "0x1003638e"
+  },
+  {
+   "id": 1141,
+   "name": "Sets the boundary size of the slider.",
+   "name_addr": "0x1004cc40",
+   "code_addr": "0x10036436"
+  },
+  {
+   "id": 1142,
+   "name": "Select the direction of the slider.",
+   "name_addr": "0x1004cc98",
+   "code_addr": "0x100364c6"
+  },
+  {
+   "id": 1143,
+   "name": "Sets the scale for each block of the slider.",
+   "name_addr": "0x1004ccf0",
+   "code_addr": "0x10036569"
+  },
+  {
+   "id": 1144,
+   "name": "Sets the color of the slider scale.",
+   "name_addr": "0x1004cd58",
+   "code_addr": "0x100365fe"
+  },
+  {
+   "id": 1145,
+   "name": "Sets the number of segments on the slider's long scale.",
+   "name_addr": "0x1004cdb8",
+   "code_addr": "0x100366a2"
+  },
+  {
+   "id": 1146,
+   "name": "Sets the number of segments on the slider's short scale.",
+   "name_addr": "0x1004ce40",
+   "code_addr": "0x10036735"
+  },
+  {
+   "id": 1147,
+   "name": "Select the style of the slider.",
+   "name_addr": "0x1004cec8",
+   "code_addr": "0x100367d7"
+  },
+  {
+   "id": 1148,
+   "name": "Sets the color of the slider.",
+   "name_addr": "0x1004cf18",
+   "code_addr": "0x10036879"
+  },
+  {
+   "id": 1150,
+   "name": "Set the color of slide 1.",
+   "name_addr": "0x1004cf64",
+   "code_addr": "0x1003691c"
+  },
+  {
+   "id": 1151,
+   "name": "Display scale or not.",
+   "name_addr": "0x1004cfe8",
+   "code_addr": "0x10036a56"
+  },
+  {
+   "id": 1152,
+   "name": "Display symbols or not.",
+   "name_addr": "0x1004d020",
+   "code_addr": "0x10036afb"
+  },
+  {
+   "id": 1153,
+   "name": "Set the horizontal starting position of the slider.",
+   "name_addr": "0x1004d060",
+   "code_addr": "0x10036b72"
+  },
+  {
+   "id": 1154,
+   "name": "Set the width resolution size of the slider.",
+   "name_addr": "0x1004d150",
+   "code_addr": "0x10036cd7"
+  },
+  {
+   "id": 6300,
+   "name": "Displays vertical scroll bar.",
+   "name_addr": "0x1004d244",
+   "code_addr": "0x10036e1c"
+  },
+  {
+   "id": 1201,
+   "name": "Displays vertical scroll bar.",
+   "name_addr": "0x1004d244",
+   "code_addr": "0x10036ea1"
+  },
+  {
+   "id": 1200,
+   "name": "Displays horizontal scroll bar.",
+   "name_addr": "0x1004d298",
+   "code_addr": "0x10036f3a"
+  },
+  {
+   "id": 1405,
+   "name": "The type of corner marker for the tree control.",
+   "name_addr": "0x1004d2e8",
+   "code_addr": "0x10036fde"
+  },
+  {
+   "id": 1413,
+   "name": "Position switching speed, 0 to 255, unit: 100ms.",
+   "name_addr": "0x1004d3d0",
+   "code_addr": "0x10037115"
+  },
+  {
+   "id": 1414,
+   "name": "Animated image display size (Width).",
+   "name_addr": "0x1004d608",
+   "code_addr": "0x10037377"
+  },
+  {
+   "id": 1415,
+   "name": "Control method for the state and position of animated image.",
+   "name_addr": "0x1004d6c8",
+   "code_addr": "0x100374bb"
+  },
+  {
+   "id": 1416,
+   "name": "Animation position.",
+   "name_addr": "0x1004d750",
+   "code_addr": "0x10037552"
+  },
+  {
+   "id": 1425,
+   "name": "Flow speed of the slider block: each slide moves x pixels, with flow velocities ",
+   "name_addr": "0x1004d788",
+   "code_addr": "0x100375f7"
+  },
+  {
+   "id": 1426,
+   "name": "Whether reverse flow occurs.",
+   "name_addr": "0x1004d89c",
+   "code_addr": "0x10037676"
+  },
+  {
+   "id": 1427,
+   "name": "Width of the conduit.",
+   "name_addr": "0x1004d8e4",
+   "code_addr": "0x1003772a"
+  },
+  {
+   "id": 1428,
+   "name": "Style of the slider block.",
+   "name_addr": "0x1004d954",
+   "code_addr": "0x10037864"
+  },
+  {
+   "id": 1500,
+   "name": "When the control switch message triggers, call the sub function via Hmi_CtrlMsgC",
+   "name_addr": "0x1004dab8",
+   "code_addr": "0x10037b9c"
+  },
+  {
+   "id": 1501,
+   "name": "Select the icon from the picture library.",
+   "name_addr": "0x1004dbb0",
+   "code_addr": "0x10037c30"
+  },
+  {
+   "id": 1502,
+   "name": "Set the color of the icon.",
+   "name_addr": "0x1004dc10",
+   "code_addr": "0x10037cd5"
+  },
+  {
+   "id": 1503,
+   "name": "Select the display position of the icon relative to the label.",
+   "name_addr": "0x1004dc58",
+   "code_addr": "0x10037d85"
+  },
+  {
+   "id": 1504,
+   "name": "Set the distance between the icon and the border.",
+   "name_addr": "0x1004dce8",
+   "code_addr": "0x10037e27"
+  },
+  {
+   "id": 1510,
+   "name": "Set word wrap or not.",
+   "name_addr": "0x1004dd58",
+   "code_addr": "0x10037ebf"
+  },
+  {
+   "id": 1511,
+   "name": "Call the function when switching tab.",
+   "name_addr": "0x1004dd98",
+   "code_addr": "0x10037f6f"
+  },
+  {
+   "id": 1514,
+   "name": "The radix type for numerical display, applicable to integers.",
+   "name_addr": "0x1004ddf8",
+   "code_addr": "0x10037ff3"
+  },
+  {
+   "id": 1515,
+   "name": "Active error compensation value, applicable to floating-point numbers.(-1.000000",
+   "name_addr": "0x1004de90",
+   "code_addr": "0x100380c0"
+  },
+  {
+   "id": 1516,
+   "name": "Whether to automatically back up the previous drawing; during passive SER_REDRAW",
+   "name_addr": "0x1004df68",
+   "code_addr": "0x10038153"
+  },
+  {
+   "id": 1517,
+   "name": "Control transparency.(0% to 100%)",
+   "name_addr": "0x1004e088",
+   "code_addr": "0x100381f4"
+  },
+  {
+   "id": 1535,
+   "name": "The type of corner marker for the dropdown list control.",
+   "name_addr": "0x1004e0d0",
+   "code_addr": "0x10038299"
+  },
+  {
+   "id": 1536,
+   "name": "The alignment position of the label display.",
+   "name_addr": "0x1004e1c8",
+   "code_addr": "0x100383c3"
+  },
+  {
+   "id": 1537,
+   "name": "The height of the label display.",
+   "name_addr": "0x1004e238",
+   "code_addr": "0x10038465"
+  },
+  {
+   "id": 1538,
+   "name": "Set the number of tabs.(1 to 16)",
+   "name_addr": "0x1004e288",
+   "code_addr": "0x100384fd"
+  },
+  {
+   "id": 1539,
+   "name": "Setting the label text and background color of the tab.",
+   "name_addr": "0x1004e2e8",
+   "code_addr": "0x1003859e"
+  },
+  {
+   "id": 1541,
+   "name": "The scrollable display width of the panel.",
+   "name_addr": "0x1004e3d0",
+   "code_addr": "0x100386cc"
+  },
+  {
+   "id": 1550,
+   "name": "The name of the tootip text library, if empty, indicates the use of a tooltip te",
+   "name_addr": "0x1004e4a8",
+   "code_addr": "0x10038828"
+  },
+  {
+   "id": 1551,
+   "name": "The tooltip text displayed when the mouse hovers over the control.",
+   "name_addr": "0x1004e5b0",
+   "code_addr": "0x100388a6"
+  },
+  {
+   "id": 1260,
+   "name": "Use layer colors.",
+   "name_addr": "0x1004e644",
+   "code_addr": "0x1003894a"
+  },
+  {
+   "id": 1261,
+   "name": "Set vect colors.",
+   "name_addr": "0x1004e674",
+   "code_addr": "0x100389ef"
+  },
+  {
+   "id": 1262,
+   "name": "Set empty colors.",
+   "name_addr": "0x1004e6a4",
+   "code_addr": "0x10038a84"
+  },
+  {
+   "id": 1263,
+   "name": "Set select colors.",
+   "name_addr": "0x1004e6d8",
+   "code_addr": "0x10038b26"
+  },
+  {
+   "id": 1264,
+   "name": "Set secondary colors.",
+   "name_addr": "0x1004e710",
+   "code_addr": "0x10038bac"
+  },
+  {
+   "id": 1029,
+   "name": "The background color of the control.",
+   "name_addr": "0x1004e750",
+   "code_addr": "0x10038ce6"
+  },
+  {
+   "id": 1034,
+   "name": "Whether to draw the border of the control.",
+   "name_addr": "0x1004e7b0",
+   "code_addr": "0x10038d88"
+  },
+  {
+   "id": 1009,
+   "name": "Select the background image of the control from the picture library.",
+   "name_addr": "0x1004e8d8",
+   "code_addr": "0x10038f50"
+  },
+  {
+   "id": 1010,
+   "name": "One of them: None, Back Picture, Back PictureLib.",
+   "name_addr": "0x1004e978",
+   "code_addr": "0x1003900a"
+  },
+  {
+   "id": 1007,
+   "name": "The name of the text library, if empty, indicates the use of a text label.",
+   "name_addr": "0x1004e9e0",
+   "code_addr": "0x10039089"
+  },
+  {
+   "id": 1008,
+   "name": "Select the background image of the control from the picture file.",
+   "name_addr": "0x1004ea88",
+   "code_addr": "0x1003910f"
+  },
+  {
+   "id": 20010,
+   "name": "Sets The public window 1 for the current window, which displays the controls for",
+   "name_addr": "0x1004eb20",
+   "code_addr": "0x100391ea"
+  },
+  {
+   "id": 20011,
+   "name": "Sets The public window 2 for the current window, which displays the controls for",
+   "name_addr": "0x1004ebf8",
+   "code_addr": "0x1003929a"
+  },
+  {
+   "id": 20012,
+   "name": "Sets The public window 3 for the current window, which displays the controls for",
+   "name_addr": "0x1004ecd0",
+   "code_addr": "0x1003934a"
+  },
+  {
+   "id": 20008,
+   "name": "Background transparency.(0% to 100%)",
+   "name_addr": "0x1004ed98",
+   "code_addr": "0x100393ec"
+  },
+  {
+   "id": 1046,
+   "name": "The color currently displayed.",
+   "name_addr": "0x1004edf0",
+   "code_addr": "0x10039472"
+  },
+  {
+   "id": 1033,
+   "name": "Need to draw vector graphics.",
+   "name_addr": "0x1004ee40",
+   "code_addr": "0x100396d3"
+  },
+  {
+   "id": 1030,
+   "name": "Chamfering radius.",
+   "name_addr": "0x1004ee84",
+   "code_addr": "0x1003977b"
+  },
+  {
+   "id": 1035,
+   "name": "Whether to fill color.",
+   "name_addr": "0x1004eeb4",
+   "code_addr": "0x100397ea"
+  },
+  {
+   "id": 1036,
+   "name": "Select the color to fill.",
+   "name_addr": "0x1004eef0",
+   "code_addr": "0x1003989c"
+  },
+  {
+   "id": 1080,
+   "name": "Control becomes an image (variable label font).",
+   "name_addr": "0x1004ef30",
+   "code_addr": "0x10039941"
+  },
+  {
+   "id": 1084,
+   "name": "Use formatting text background.",
+   "name_addr": "0x1004efc0",
+   "code_addr": "0x10039b0f"
+  },
+  {
+   "id": 1040,
+   "name": "Sets the length of the character element operation character (0 to 255).",
+   "name_addr": "0x1004f000",
+   "code_addr": "0x10039bb6"
+  },
+  {
+   "id": 1041,
+   "name": "Input lower limit.",
+   "name_addr": "0x1004f154",
+   "code_addr": "0x10039d70"
+  },
+  {
+   "id": 1045,
+   "name": "Sets the list control to be list-based or drop-down.",
+   "name_addr": "0x1004f1b0",
+   "code_addr": "0x10039e87"
+  },
+  {
+   "id": 1044,
+   "name": "Sets the color of the selected part of the list element.",
+   "name_addr": "0x1004f230",
+   "code_addr": "0x10039f46"
+  },
+  {
+   "id": 1164,
+   "name": "Set the string element to display as *.",
+   "name_addr": "0x1004f2a8",
+   "code_addr": "0x10039fdd"
+  },
+  {
+   "id": 1320,
+   "name": "Whether to display the path.",
+   "name_addr": "0x1004f304",
+   "code_addr": "0x1003a063"
+  },
+  {
+   "id": 1321,
+   "name": "Whether to display the title.",
+   "name_addr": "0x1004f340",
+   "code_addr": "0x1003a11a"
+  },
+  {
+   "id": 1322,
+   "name": "Whether to display the file name.",
+   "name_addr": "0x1004f3b8",
+   "code_addr": "0x1003a26c"
+  },
+  {
+   "id": 1323,
+   "name": "Column width of file name.",
+   "name_addr": "0x1004f538",
+   "code_addr": "0x1003a4e7"
+  },
+  {
+   "id": 1324,
+   "name": "Select the icon for folders and files.",
+   "name_addr": "0x1004f678",
+   "code_addr": "0x1003a731"
+  },
+  {
+   "id": 1325,
+   "name": "Whether to display the content of header row.",
+   "name_addr": "0x1004f6d8",
+   "code_addr": "0x1003a7b0"
+  },
+  {
+   "id": 1327,
+   "name": "Edit cell content.",
+   "name_addr": "0x1004f85c",
+   "code_addr": "0x1003aa16"
+  },
+  {
+   "id": 1328,
+   "name": "The height of a row.",
+   "name_addr": "0x1004f890",
+   "code_addr": "0x1003aa95"
+  },
+  {
+   "id": 1329,
+   "name": "The width of a column.",
+   "name_addr": "0x1004f8cc",
+   "code_addr": "0x1003ab5d"
+  },
+  {
+   "id": 1350,
+   "name": "True: The column width is fixed. False: The column width can be stretched.",
+   "name_addr": "0x1004f910",
+   "code_addr": "0x1003ac01"
+  },
+  {
+   "id": 1351,
+   "name": "True: The row height is fixed. False: The row height can be stretched.",
+   "name_addr": "0x1004f9c0",
+   "code_addr": "0x1003ac96"
+  },
+  {
+   "id": 1005,
+   "name": "Number of control states (1 to 256).",
+   "name_addr": "0x1004fa60",
+   "code_addr": "0x1003ad2d"
+  },
+  {
+   "id": 1006,
+   "name": "Sets the style of the control label.",
+   "name_addr": "0x1004fac8",
+   "code_addr": "0x1003adc2"
+  },
+  {
+   "id": 2000,
+   "name": "Sets the style of the control label.",
+   "name_addr": "0x1004fac8",
+   "code_addr": "0x1003ae57"
+  },
+  {
+   "id": 4000,
+   "name": "Set list state.",
+   "name_addr": "0x1004fb2c",
+   "code_addr": "0x1003af93"
+  },
+  {
+   "id": 1050,
+   "name": "Action performed by the key.",
+   "name_addr": "0x1004fba4",
+   "code_addr": "0x1003b167"
+  },
+  {
+   "id": 1051,
+   "name": "Action performed by the key.",
+   "name_addr": "0x1004fba4",
+   "code_addr": "0x1003b216"
+  },
+  {
+   "id": 1052,
+   "name": "Action performed by the key.",
+   "name_addr": "0x1004fba4",
+   "code_addr": "0x1003b2b6"
+  },
+  {
+   "id": 1053,
+   "name": "Action performed by the key.",
+   "name_addr": "0x1004fba4",
+   "code_addr": "0x1003b325"
+  },
+  {
+   "id": 1054,
+   "name": "Action performed by the key.",
+   "name_addr": "0x1004fba4",
+   "code_addr": "0x1003b3f6"
+  },
+  {
+   "id": 1079,
+   "name": "Call the function when the key is released.",
+   "name_addr": "0x1004fe18",
+   "code_addr": "0x1003cd79"
+  },
+  {
+   "id": 1078,
+   "name": "The function is called when the key is pressed.",
+   "name_addr": "0x1004fe90",
+   "code_addr": "0x1003ce87"
+  },
+  {
+   "id": 20026,
+   "name": "Default BASIC file.",
+   "name_addr": "0x1004ff04",
+   "code_addr": "0x1003cf57"
+  },
+  {
+   "id": 20027,
+   "name": "Set the horizontal resolution size.",
+   "name_addr": "0x1004ff40",
+   "code_addr": "0x1003cff8"
+  },
+  {
+   "id": 20050,
+   "name": "The specified device.",
+   "name_addr": "0x1004b4a0",
+   "code_addr": "0x1003d140"
+  },
+  {
+   "id": 1002,
+   "name": "Sets the width resolution size of a window or control.",
+   "name_addr": "0x1004fff0",
+   "code_addr": "0x1003d1db"
+  },
+  {
+   "id": 1003,
+   "name": "Sets the horizontal starting position of a window or control.",
+   "name_addr": "0x100500e0",
+   "code_addr": "0x1003d30d"
+  }
+ ]
+}

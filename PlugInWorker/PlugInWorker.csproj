@@ -49,6 +49,10 @@
     <!-- 业务逻辑文件（从 PlugInAdapter 移过来） -->
     <Compile Include="ApiServer.cs" />
     <Compile Include="RTSysHandlers.cs" />
+    <Compile Include="HmiFile.cs" />
+    <Compile Include="RTSysEditor.cs" />
+    <Compile Include="RTSysProjectModel.cs" />
+    <Compile Include="ProgramWorkspace.cs" />
     <Compile Include="ZMotionAPI.cs" />
     <Compile Include="ZMotionExtensions.cs" />
     <Compile Include="ZMotionHandle.cs" />
@@ -65,9 +69,6 @@
     <Compile Include="AiSubagent.cs" />
     <Compile Include="AiValidation.cs" />
     <Compile Include="AiControllerValidation.cs" />
-    <Compile Include="AiCompat.cs" />
-    <Compile Include="AiOptimizationTests.cs" />
-    <Compile Include="Handlers.cs" />
     <Compile Include="PlugInLog.cs" />
     <Compile Include="Lang.cs" />
   </ItemGroup>

@@ -1,0 +1,335 @@
+{
+ "count": 47,
+ "controls": [
+  {
+   "type": 700,
+   "name": "Line/Polyline/Polygon",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d2a8",
+   "inherits_name": false
+  },
+  {
+   "type": 702,
+   "name": "Rect",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d29c",
+   "inherits_name": false
+  },
+  {
+   "type": 706,
+   "name": "Bezier",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d21c",
+   "inherits_name": false
+  },
+  {
+   "type": 701,
+   "name": "Ellipse/Arc/Sector",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d1f4",
+   "inherits_name": false
+  },
+  {
+   "type": 712,
+   "name": "Scale",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x5c5d7c",
+   "inherits_name": false
+  },
+  {
+   "type": 645,
+   "name": "Table",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d244",
+   "inherits_name": false
+  },
+  {
+   "type": 707,
+   "name": "Import",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x68c918",
+   "inherits_name": false
+  },
+  {
+   "type": 705,
+   "name": "Import",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 708,
+   "name": "Import",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 709,
+   "name": "Import",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 710,
+   "name": "Import",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 711,
+   "name": "Import",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 703,
+   "name": "StaticText",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d22c",
+   "inherits_name": false
+  },
+  {
+   "type": 704,
+   "name": "Picture",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d264",
+   "inherits_name": false
+  },
+  {
+   "type": 600,
+   "name": "BitState",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d250",
+   "inherits_name": false
+  },
+  {
+   "type": 601,
+   "name": "WordState",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d288",
+   "inherits_name": false
+  },
+  {
+   "type": 616,
+   "name": "Animation",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d274",
+   "inherits_name": false
+  },
+  {
+   "type": 723,
+   "name": "FlowBlock",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d374",
+   "inherits_name": false
+  },
+  {
+   "type": 630,
+   "name": "FlowBlock",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 631,
+   "name": "FlowBlock",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 602,
+   "name": "BitModify",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d360",
+   "inherits_name": false
+  },
+  {
+   "type": 603,
+   "name": "WordModify",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d39c",
+   "inherits_name": false
+  },
+  {
+   "type": 604,
+   "name": "BitSwitch",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d388",
+   "inherits_name": false
+  },
+  {
+   "type": 605,
+   "name": "WordSwitch",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d3c4",
+   "inherits_name": false
+  },
+  {
+   "type": 609,
+   "name": "Button",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d3b4",
+   "inherits_name": false
+  },
+  {
+   "type": 608,
+   "name": "KeyButton",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d3f4",
+   "inherits_name": false
+  },
+  {
+   "type": 610,
+   "name": "KeyButton",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 612,
+   "name": "Value show",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d3dc",
+   "inherits_name": false
+  },
+  {
+   "type": 611,
+   "name": "String show",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d2e0",
+   "inherits_name": false
+  },
+  {
+   "type": 713,
+   "name": "String show",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 607,
+   "name": "Slip",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d2d4",
+   "inherits_name": false
+  },
+  {
+   "type": 717,
+   "name": "Report view",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d30c",
+   "inherits_name": false
+  },
+  {
+   "type": 714,
+   "name": "File3Edit",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d2f8",
+   "inherits_name": false
+  },
+  {
+   "type": 900,
+   "name": "File3Edit",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 715,
+   "name": "CAD",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d330",
+   "inherits_name": false
+  },
+  {
+   "type": 606,
+   "name": "List",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x5cd198",
+   "inherits_name": false
+  },
+  {
+   "type": 730,
+   "name": "Menu",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d324",
+   "inherits_name": false
+  },
+  {
+   "type": 721,
+   "name": "Tree",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d354",
+   "inherits_name": false
+  },
+  {
+   "type": 716,
+   "name": "File browser",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d338",
+   "inherits_name": false
+  },
+  {
+   "type": 733,
+   "name": "Group box",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d4d8",
+   "inherits_name": false
+  },
+  {
+   "type": 731,
+   "name": "Tab control",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d4c0",
+   "inherits_name": false
+  },
+  {
+   "type": 734,
+   "name": "Panel",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d4f8",
+   "inherits_name": false
+  },
+  {
+   "type": 621,
+   "name": "Timer",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x69d4ec",
+   "inherits_name": false
+  },
+  {
+   "type": 620,
+   "name": "Timer",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 640,
+   "name": "Timer",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 641,
+   "name": "Timer",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": null,
+   "inherits_name": true
+  },
+  {
+   "type": 901,
+   "name": "Custom",
+   "source": "RTSys.exe sub_4EE220",
+   "name_addr": "0x5c5238",
+   "inherits_name": false
+  }
+ ],
+ "note": "仅保留 RTSys.exe sub_4EE220 中已与 Hmi1.hmi 校验的内置控件；ExtHmiControl_W.dll 另行注册约 20 个类型（0x3FA+），其类型/名称映射待运行时校验，未写入本表。"
+}

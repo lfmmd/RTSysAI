@@ -1,7 +1,8 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.NetworkInformation;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -9,34 +10,463 @@ using System.Web.Script.Serialization;
 
 namespace RTSys.PlugIn
 {
+    /// <summary>
+    /// RTSys 风格的控制器处理器：通过 ZMotionHandle 访问控制器，支持自动搜索、静态 IP、仿真器连接。
+    /// 已移除 RTSysIP 硬性要求：优先尝试 ZMC_SearchEth/ZMC_SearchAndOpenEth 自动搜索连接，
+    /// 再回退到配置文件静态 IP，最后尝试仿真器连接。
+    /// </summary>
     internal static class RTSysHandlers
     {
+        /// <summary>
+        /// 控制器连接状态
+        /// </summary>
+        public enum ControllerConnectionState
+        {
+            Unknown,           // 尚未检查
+            NotConfigured,     // 未配置 IP 且自动搜索失败
+            Disconnected,      // 已有目标 IP/仿真但连接失败/已断开
+            Connected          // 已连接
+        }
+
         private static ZMotionHandle _handle;
         private static readonly object _handleLock = new object();
+
+        // 连接尝试串行化 + 超时 + 失败冷却。
+        // ZMC_SearchAndOpenEth / ZMC_SearchEth 是同步阻塞原生调用，控制器不可达时可能长时间
+        // 不返回；不加托管侧超时会把对话/工具调用永久卡住（表现为发送键一直停在“停止”）。
+        private static readonly System.Threading.SemaphoreSlim _connectGate = new System.Threading.SemaphoreSlim(1, 1);
+        private static DateTime _lastConnectFailUtc = DateTime.MinValue;
+        private const int AttemptTimeoutMs = 2500;
+        private const int ConnectFailCooldownSeconds = 15;
+        private const int ConnectGateTimeoutMs = 10000;
         private static string _cachedIp;
         private static readonly JavaScriptSerializer _json = new JavaScriptSerializer();
 
+        // 连接模式
+        private enum ConnectMode
+        {
+            AutoSearch,      // 自动搜索以太网/串口
+            StaticIp,        // 使用配置的静态 IP
+            Simulator        // 连接仿真器
+        }
+
+        // 当前连接模式（运行时确定）
+        private static ConnectMode _currentMode = ConnectMode.AutoSearch;
+
+        // 连接状态缓存：避免每个工具调用都重读 config.json。
+        // SetRTSysIp 改 IP 时立即失效；否则按 TTL 过期。
+        private static ControllerConnectionState _connStateCache = ControllerConnectionState.Unknown;
+        private static DateTime _connStateCacheTime = DateTime.MinValue;
+        private const int ConnStateCacheTtlSeconds = 5;
+
+        /// <summary>
+        /// 控制器未配置 IP 且自动搜索失败时的用户友好错误消息（中文，含可操作提示）
+        /// </summary>
+        internal const string ControllerNotConfiguredMessage =
+            "无法连接控制器：自动搜索未发现设备，且未配置静态 IP。" +
+            " 请在「设置」中填写 RTSys 控制器 IP，或检查网络/仿真器是否运行。";
+
+        /// <summary>
+        /// 控制器不可连时的用户友好错误消息
+        /// </summary>
+        internal const string ControllerUnreachableMessage =
+            "控制器不可达：已尝试自动搜索/配置 IP/仿真器均无法建立连接。" +
+            " 请检查网络连接、控制器电源、防火墙或仿真器是否运行。";
+
         // ========== 连接管理 ==========
 
-        private static async Task<ZMotionHandle> GetHandleAsync()
+        /// <summary>
+        /// 检查控制器连接状态（不建立新连接，不抛异常）。
+        /// 优先返回已有句柄状态；其次尝试自动搜索；最后读取静态 IP 配置。
+        /// </summary>
+        internal static ControllerConnectionState GetConnectionState()
         {
-            if (_handle != null && !_handle.IsInvalid)
-                return _handle;
-
             lock (_handleLock)
             {
+                // 1. 已有有效句柄
                 if (_handle != null && !_handle.IsInvalid)
+                {
+                    _connStateCache = ControllerConnectionState.Connected;
+                    _connStateCacheTime = DateTime.Now;
+                    return ControllerConnectionState.Connected;
+                }
+
+                // 2. 缓存未过期
+                if (_connStateCache != ControllerConnectionState.Unknown &&
+                    (DateTime.Now - _connStateCacheTime).TotalSeconds < ConnStateCacheTtlSeconds)
+                    return _connStateCache;
+
+                // 3. 只依据已有句柄 / 静态 IP 配置判断，不在此处做网络搜索。
+                //    ZMC_SearchEth 是同步阻塞调用且无超时；若在构建提示词（每轮对话）时执行，
+                //    控制器不可达会让整个对话卡死、AI 请求根本发不出去。
+                //    自动搜索保留在显式连接流程（GetHandleAsync）中。
+                string ip = GetRTSysIpFromConfig();
+                _connStateCache = string.IsNullOrEmpty(ip)
+                    ? ControllerConnectionState.NotConfigured
+                    : ControllerConnectionState.Disconnected;
+                _connStateCacheTime = DateTime.Now;
+                return _connStateCache;
+            }
+        }
+
+        /// <summary>
+        /// 是否已有可用的控制器句柄。仅读内存状态，不触发任何网络搜索/连接，
+        /// 适合在构建提示词等不允许阻塞的路径中使用。
+        /// </summary>
+        internal static bool HasLiveConnection
+        {
+            get
+            {
+                lock (_handleLock)
+                {
+                    return _handle != null && !_handle.IsInvalid;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 结构化连接状态（供 controller_status 工具使用）。不触发网络搜索/连接。
+        /// </summary>
+        internal static object GetConnectionStatus()
+        {
+            var state = GetConnectionState();
+            return new
+            {
+                connectionState = state.ToString(),
+                currentMode = _currentMode.ToString(),
+                cachedIp = _cachedIp,
+                connected = HasLiveConnection
+            };
+        }
+
+        /// <summary>
+        /// 尝试通过 ZMC_SearchEth 自动发现控制器 IP（不建立连接）。
+        /// 返回第一个发现的 IP，失败返回 null。
+        /// </summary>
+        private static int _searchEthHanging; // 1 = 上次原生搜索仍未返回，避免继续堆积阻塞线程
+
+        private static string TryDiscoverControllerIp()
+        {
+            if (System.Threading.Volatile.Read(ref _searchEthHanging) != 0)
+                return null;
+
+            string found = null;
+            var task = Task.Run(() =>
+            {
+                try
+                {
+                    StringBuilder buffer = new StringBuilder(1024);
+                    int result = ZMotionAPI.ZMC_SearchEth(buffer, buffer.Capacity);
+                    if (result == ZMotionErrors.SUCCESS && buffer.Length > 0)
+                    {
+                        // ZMC_SearchEth 返回格式通常为 "IP1,IP2,..." 或单个 IP
+                        string[] ips = buffer.ToString().Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (ips.Length > 0)
+                        {
+                            found = ips[0].Trim();
+                            PlugInLog.Log("自动发现控制器 IP: " + found);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    PlugInLog.LogException("TryDiscoverControllerIp", ex);
+                }
+            });
+
+            // ZMC_SearchEth 是同步原生调用且无超时；最多等 3 秒，避免聊天/HTTP 线程无限阻塞。
+            if (!task.Wait(3000))
+            {
+                System.Threading.Volatile.Write(ref _searchEthHanging, 1);
+                PlugInLog.Log("ZMC_SearchEth 超过 3s 未返回，放弃本次自动搜索（后台原生线程仍阻塞）");
+                return null;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// 自动连接控制器：优先 SearchAndOpenEth -> SearchEth+OpenEth -> 静态 IP -> 仿真器
+        /// </summary>
+        private static async Task<ZMotionHandle> GetHandleAsync()
+        {
+            // 快速路径：已有有效句柄
+            if (HasLiveConnection)
+                return _handle;
+
+            // 失败冷却：避免每条工具调用都重复触发无法返回的原生搜索（会不断占用线程）。
+            if ((DateTime.UtcNow - _lastConnectFailUtc).TotalSeconds < ConnectFailCooldownSeconds)
+                throw new ControllerUnavailableException(
+                    GetConnectionState(),
+                    ControllerUnreachableMessage + " (最近一次连接尝试刚失败，请稍后重试)");
+
+            // 串行化：并发调用会同时阻塞在原生搜索里。
+            if (!await _connectGate.WaitAsync(ConnectGateTimeoutMs))
+                throw new ControllerUnavailableException(
+                    GetConnectionState(),
+                    ControllerUnreachableMessage + " (等待连接尝试超时)");
+
+            try
+            {
+                if (HasLiveConnection)
                     return _handle;
 
-                string ip = GetRTSysIpFromConfig();
-                if (string.IsNullOrEmpty(ip))
-                    throw new InvalidOperationException("RTSysIP not configured. Set it in AI settings.");
+                // 按优先级尝试各种连接方式
+                var attempts = new List<Func<Task<ZMotionHandle>>>
+                {
+                    TryConnectSearchAndOpenEth,   // 1. SearchAndOpenEth（搜索并直接连接）
+                    TryConnectSearchEthThenOpen,  // 2. SearchEth 发现 IP 再 OpenEth
+                    TryConnectStaticIp,           // 3. 静态配置 IP
+                    TryConnectSimulator           // 4. 仿真器
+                };
 
-                _cachedIp = ip;
+                Exception lastError = null;
+                foreach (var attempt in attempts)
+                {
+                    try
+                    {
+                        // 原生搜索无内部超时，必须在托管侧兜底。
+                        // 必须用 Task.Run 包裹：部分 async 尝试在第一个 await 之前就会同步调用
+                        // ZMC_SearchEth，直接调用 attempt() 会阻塞调用线程，使超时逻辑失效。
+                        var handle = await AwaitWithTimeout(Task.Run(() => attempt()), AttemptTimeoutMs);
+                        if (handle != null && !handle.IsInvalid)
+                        {
+                            lock (_handleLock)
+                            {
+                                _handle = handle;
+                                _connStateCache = ControllerConnectionState.Connected;
+                                _connStateCacheTime = DateTime.Now;
+                            }
+                            return handle;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lastError = ex;
+                        PlugInLog.Log("连接尝试失败: " + ex.Message);
+                    }
+                }
+
+                // 所有尝试均失败
+                _lastConnectFailUtc = DateTime.UtcNow;
+                lock (_handleLock)
+                {
+                    _connStateCache = ControllerConnectionState.NotConfigured;
+                    _connStateCacheTime = DateTime.Now;
+                }
+                throw new ControllerUnavailableException(ControllerConnectionState.NotConfigured,
+                    ControllerNotConfiguredMessage + (lastError != null ? " 详情: " + lastError.Message : ""));
+            }
+            finally
+            {
+                _connectGate.Release();
+            }
+        }
+
+        /// <summary>
+        /// 为可能永久阻塞的原生调用提供托管侧超时。超时后调用方不再等待
+        /// （底层线程可能仍在内核调用中，无法取消），避免对话/工具调用被无限期卡住。
+        /// </summary>
+        private static async Task<T> AwaitWithTimeout<T>(Task<T> task, int timeoutMs)
+        {
+            var completed = await Task.WhenAny(task, Task.Delay(timeoutMs));
+            if (completed != task)
+            {
+                PlugInLog.Log("连接尝试超时 (" + timeoutMs + " ms)，放弃等待");
+                return default(T);
+            }
+            return await task;
+        }
+
+        /// <summary>
+        /// 尝试 1: ZMC_SearchAndOpenEth - 搜索并直接打开连接
+        /// </summary>
+        private static async Task<ZMotionHandle> TryConnectSearchAndOpenEth()
+        {
+            PlugInLog.Log("尝试 ZMC_SearchAndOpenEth 自动搜索并连接...");
+            IntPtr h = IntPtr.Zero;
+            int result = await Task.Run(() => ZMotionAPI.ZMC_SearchAndOpenEth("", out h));
+            if (result == ZMotionErrors.SUCCESS && h != IntPtr.Zero)
+            {
+                _currentMode = ConnectMode.AutoSearch;
+                var handle = new ZMotionHandle(h, ownsHandle: true);
+                await handle.SetDefaultTimeoutAsync();
+                PlugInLog.Log("ZMC_SearchAndOpenEth 连接成功");
+                return handle;
+            }
+            PlugInLog.Log("ZMC_SearchAndOpenEth 失败: " + ZMotionErrors.GetDescription(result));
+            return null;
+        }
+
+        /// <summary>
+        /// 尝试 2: ZMC_SearchEth 发现 IP，再尝试 ZMC_OpenEth
+        /// </summary>
+        private static async Task<ZMotionHandle> TryConnectSearchEthThenOpen()
+        {
+            string discoveredIp = await Task.Run(() => TryDiscoverControllerIp());
+            if (string.IsNullOrEmpty(discoveredIp))
+            {
+                PlugInLog.Log("ZMC_SearchEth 未发现控制器");
+                return null;
             }
 
-            _handle = await ZMotionHandle.ConnectAsync(_cachedIp);
-            return _handle;
+            PlugInLog.Log("尝试 ZMC_OpenEth 连接发现的 IP: " + discoveredIp);
+            try
+            {
+                var handle = await ZMotionHandle.ConnectAsync(discoveredIp);
+                _currentMode = ConnectMode.AutoSearch;
+                _cachedIp = discoveredIp;
+                PlugInLog.Log("ZMC_OpenEth 连接成功: " + discoveredIp);
+                return handle;
+            }
+            catch (ZMotionException ex)
+            {
+                PlugInLog.Log("ZMC_OpenEth 连接失败: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 尝试 3: 使用配置文件中的静态 IP
+        /// </summary>
+        private static async Task<ZMotionHandle> TryConnectStaticIp()
+        {
+            string ip = GetRTSysIpFromConfig();
+            if (string.IsNullOrEmpty(ip))
+            {
+                PlugInLog.Log("无静态 IP 配置，跳过");
+                return null;
+            }
+
+            PlugInLog.Log("尝试静态 IP 连接: " + ip);
+            try
+            {
+                var handle = await ZMotionHandle.ConnectAsync(ip);
+                _currentMode = ConnectMode.StaticIp;
+                _cachedIp = ip;
+                PlugInLog.Log("静态 IP 连接成功: " + ip);
+                return handle;
+            }
+            catch (ZMotionException ex)
+            {
+                PlugInLog.Log("静态 IP 连接失败: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 尝试 4: 连接仿真器 (zmotionsimu.dll / ZvEpm.dll)
+        /// 通过 ZMC_Open 尝试本地仿真连接，或加载仿真 DLL
+        /// </summary>
+        private static async Task<ZMotionHandle> TryConnectSimulator()
+        {
+            PlugInLog.Log("尝试连接仿真器...");
+
+            // 尝试 4a: 通过 ZMC_Open 连接本地仿真 (type=0 或特殊标识)
+            try
+            {
+                IntPtr h = IntPtr.Zero;
+                int result = await Task.Run(() => ZMotionAPI.ZMC_Open(0, "simulator", out h));
+                if (result == ZMotionErrors.SUCCESS && h != IntPtr.Zero)
+                {
+                    _currentMode = ConnectMode.Simulator;
+                    var handle = new ZMotionHandle(h, ownsHandle: true);
+                    await handle.SetDefaultTimeoutAsync();
+                    PlugInLog.Log("仿真器连接成功 (ZMC_Open type=0)");
+                    return handle;
+                }
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.Log("仿真器 ZMC_Open 失败: " + ex.Message);
+            }
+
+            // 尝试 4b: 尝试加载 zmotionsimu.dll 并检查其导出函数
+            try
+            {
+                string simuDll = Path.Combine(
+                    Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
+                    "zmotionsimu.dll");
+                if (File.Exists(simuDll))
+                {
+                    PlugInLog.Log("发现仿真 DLL: " + simuDll);
+                    // 这里可以通过 P/Invoke 调用 zmotionsimu.dll 的导出函数
+                    // 暂时标记为仿真模式，后续可扩展
+                }
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.Log("加载仿真 DLL 失败: " + ex.Message);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 连接状态缓存失效（改 IP / 主动断开 / 模式切换后调用）
+        /// </summary>
+        internal static void InvalidateConnectionStateCache()
+        {
+            lock (_handleLock)
+            {
+                _connStateCache = ControllerConnectionState.Unknown;
+                _connStateCacheTime = DateTime.MinValue;
+            }
+        }
+
+        /// <summary>
+        /// 中心化：控制器不可用时的结构化错误（返回 JSON，不抛异常）。
+        /// AI 可据此向用户说明需要配置 IP 或检查网络/仿真器。
+        /// </summary>
+        internal static object ControllerUnavailableError()
+        {
+            return ControllerUnavailableError(GetConnectionState());
+        }
+
+        /// <summary>
+        /// 中心化：控制器不可用时的结构化错误（指定连接状态）。
+        /// 字段：success/error/hint/connectionState/requiresController/currentMode/suggestion —— AI 直接转述 hint 即可。
+        /// </summary>
+        internal static object ControllerUnavailableError(ControllerConnectionState state)
+        {
+            string msg;
+            switch (state)
+            {
+                case ControllerConnectionState.NotConfigured:
+                    msg = ControllerNotConfiguredMessage;
+                    break;
+                case ControllerConnectionState.Disconnected:
+                    msg = ControllerUnreachableMessage;
+                    break;
+                default:
+                    msg = "控制器连接状态未知，无法执行该操作。";
+                    break;
+            }
+            return new
+            {
+                success = false,
+                error = msg,
+                hint = msg,
+                connectionState = state.ToString(),
+                requiresController = true,
+                currentMode = _currentMode.ToString(),
+                suggestion = "可尝试：1) 检查网络和控制器电源 2) 在设置中配置静态 IP 3) 启动仿真器 (ZvEpm/zmotionsimu)"
+            };
+        }
+
+        /// <summary>
+        /// 获取当前连接模式（供外部 API 调用）
+        /// </summary>
+        public static string GetCurrentConnectMode()
+        {
+            return _currentMode.ToString();
+        }
+
+        /// <summary>
+        /// 获取当前缓存的 IP（供外部 API 调用）
+        /// </summary>
+        public static string GetCachedIp()
+        {
+            return _cachedIp;
         }
 
         private static string GetRTSysIpFromConfig()
@@ -56,6 +486,10 @@ namespace RTSys.PlugIn
             return null;
         }
 
+        /// <summary>
+        /// 设置静态 IP（用户手动配置时调用）。设置后会切换到 StaticIp 模式并清除缓存。
+        /// RTSysIP 现在是可选配置：不填时系统会自动搜索或尝试仿真器。
+        /// </summary>
         public static void SetRTSysIp(string ip)
         {
             try
@@ -69,6 +503,7 @@ namespace RTSys.PlugIn
                 cfg["RTSysIP"] = ip ?? "";
                 File.WriteAllText(AiService.ConfigPath, _json.Serialize(cfg));
                 _cachedIp = ip;
+                _currentMode = ConnectMode.StaticIp;
 
                 lock (_handleLock)
                 {
@@ -78,19 +513,102 @@ namespace RTSys.PlugIn
                         _handle = null;
                     }
                 }
+                InvalidateConnectionStateCache();
             }
             catch { }
+        }
+
+        /// <summary>
+        /// 手动触发自动搜索连接（用户点击「自动连接」按钮时调用）
+        /// </summary>
+        public static async Task<object> TriggerAutoConnectAsync()
+        {
+            lock (_handleLock)
+            {
+                _currentMode = ConnectMode.AutoSearch;
+                if (_handle != null && !_handle.IsInvalid)
+                {
+                    _handle.DisposeSafe();
+                    _handle = null;
+                }
+            }
+            InvalidateConnectionStateCache();
+
+            try
+            {
+                _lastConnectFailUtc = DateTime.MinValue; // 手动连接：跳过失败冷却
+                var handle = await GetHandleAsync();
+                return new { success = true, mode = _currentMode.ToString(), ip = _cachedIp };
+            }
+            catch (ControllerUnavailableException ex)
+            {
+                return ControllerUnavailableError(ex.State);
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// 手动触发仿真器连接
+        /// </summary>
+        public static async Task<object> TriggerSimulatorConnectAsync()
+        {
+            lock (_handleLock)
+            {
+                _currentMode = ConnectMode.Simulator;
+                if (_handle != null && !_handle.IsInvalid)
+                {
+                    _handle.DisposeSafe();
+                    _handle = null;
+                }
+            }
+            InvalidateConnectionStateCache();
+
+            try
+            {
+                _lastConnectFailUtc = DateTime.MinValue; // 手动连接：跳过失败冷却
+                var handle = await GetHandleAsync();
+                return new { success = true, mode = _currentMode.ToString() };
+            }
+            catch (ControllerUnavailableException ex)
+            {
+                return ControllerUnavailableError(ex.State);
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = ex.Message };
+            }
         }
 
         // ========== 统一错误包装 ==========
 
         private static object Error(string msg) => new { success = false, error = msg };
 
+        /// <summary>
+        /// 控制器不可用异常（未配置 IP / 控制器不可达 / 仿真器不可用）。
+        /// 由 Safe/SafeAsync 统一捕获，转成结构化 tool_result，不外泄堆栈。
+        /// </summary>
+        internal class ControllerUnavailableException : Exception
+        {
+            public ControllerConnectionState State { get; }
+
+            public ControllerUnavailableException(ControllerConnectionState state, string message) : base(message)
+            {
+                State = state;
+            }
+        }
+
         private static async Task<object> SafeAsync(Func<Task<object>> func)
         {
             try
             {
                 return await Task.Run(func);
+            }
+            catch (ControllerUnavailableException ex)
+            {
+                return ControllerUnavailableError(ex.State);
             }
             catch (ZMotionException ex)
             {
@@ -108,6 +626,10 @@ namespace RTSys.PlugIn
             {
                 return Task.Run(func).GetAwaiter().GetResult();
             }
+            catch (ControllerUnavailableException ex)
+            {
+                return ControllerUnavailableError(ex.State);
+            }
             catch (ZMotionException ex)
             {
                 return Error(ex.Message);
@@ -123,6 +645,10 @@ namespace RTSys.PlugIn
             try
             {
                 return Task.Run(func).GetAwaiter().GetResult();
+            }
+            catch (ControllerUnavailableException ex)
+            {
+                return ControllerUnavailableError(ex.State);
             }
             catch (ZMotionException ex)
             {
@@ -141,47 +667,224 @@ namespace RTSys.PlugIn
         {
             return Safe(async () =>
             {
+                // 未配置 IP：返回结构化状态（不是错误），AI 可据此询问用户 IP
+                var state = GetConnectionState();
+                var pendingUploads = ProgramWorkspace.GetPendingUploads();
+                if (state == ControllerConnectionState.NotConfigured)
+                {
+                    return new
+                    {
+                        success = true,
+                        connected = false,
+                        connectionState = state.ToString(),
+                        controller = "RTSys",
+                        firmware = (string)null,
+                        project = "RTSys Controller",
+                        ip = (string)null,
+                        axisCount = 0,
+                        state = 0,
+                        pendingUploads,
+                        hint = ControllerNotConfiguredMessage
+                    };
+                }
+
+                // 已配置 IP：尝试连接。失败时 GetHandleAsync 抛 ControllerUnavailableException，
+                // 由 Safe 统一转成结构化错误（不外泄堆栈）。
                 var handle = await GetHandleAsync();
                 var status = await handle.GetFullStatusAsync();
                 return new
                 {
+                    success = true,
                     connected = true,
+                    connectionState = ControllerConnectionState.Connected.ToString(),
                     controller = "RTSys",
                     firmware = status.FirmwareVersion?.ToString() ?? "unknown",
                     project = "RTSys Controller",
                     ip = _cachedIp,
                     axisCount = status.AxisCount,
-                    state = status.State
+                    state = status.State,
+                    pendingUploads
                 };
             });
         }
 
         // ---- Programs ----
-        public static object ListPrograms()
+        /// <summary>
+        /// 仅列“当前项目目录 + 本地缓存”的程序，不触发任何控制器搜索/连接。
+        /// 供构建提示词等禁止阻塞的路径使用。
+        /// </summary>
+        internal static object ListOfflinePrograms()
         {
-            return Safe(async () =>
+            var localPrograms = ProgramWorkspace.ListLocalPrograms();
+            var projectPrograms = ProgramWorkspace.ListProjectPrograms();
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            names.UnionWith(localPrograms.Select(p => p.name));
+            names.UnionWith(projectPrograms.Select(p => p.name));
+            var items = names.Select(name =>
             {
-                var handle = await GetHandleAsync();
-                var programs = await handle.ListProgramsAsync();
-                var items = programs.Select(p => new
+                var local = localPrograms.FirstOrDefault(p => string.Equals(p.name, name, StringComparison.OrdinalIgnoreCase));
+                var proj = projectPrograms.FirstOrDefault(p => string.Equals(p.name, name, StringComparison.OrdinalIgnoreCase));
+                return new
                 {
-                    name = p,
+                    name = name,
                     type = "basic",
                     dialect = "rtbasic",
                     isEditable = true,
                     isExecutable = true,
-                    storage = "controller"
-                }).ToList();
-                return new { items };
+                    storage = proj != null ? "project" : "local",
+                    origin = proj != null && local != null ? "both" : (proj != null ? "project" : "local"),
+                    isDirty = local?.isDirty == true,
+                    lastSyncedUtc = local?.lastSyncedUtc
+                };
+            }).OrderBy(i => i.name, StringComparer.OrdinalIgnoreCase).ToList();
+            return new { success = true, items, projectDir = ProgramWorkspace.ProjectDir };
+        }
+
+        public static object ListPrograms()
+        {
+            var localPrograms = ProgramWorkspace.ListLocalPrograms();
+            var projectPrograms = ProgramWorkspace.ListProjectPrograms();
+
+            // 无活动连接时，返回项目目录 + 本地缓存（离线安全，且不触发阻塞式连接）。
+            if (!HasLiveConnection)
+            {
+                var items = MergePrograms(localPrograms, projectPrograms, null)
+                    .Select(m => new
+                    {
+                        name = m.Name,
+                        type = "basic",
+                        dialect = "rtbasic",
+                        isEditable = true,
+                        isExecutable = true,
+                        storage = m.Storage,
+                        origin = m.Origin,
+                        isDirty = m.IsDirty,
+                        lastSyncedUtc = m.LastSyncedUtc
+                    }).ToList();
+                return new { success = true, items };
+            }
+
+            // 已配置：合并本地 + 控制器程序。
+            return Safe(async () =>
+            {
+                var handle = await GetHandleAsync();
+                var controllerPrograms = await handle.ListProgramsAsync();
+
+                var items = MergePrograms(localPrograms, projectPrograms, controllerPrograms)
+                    .Select(m => new
+                    {
+                        name = m.Name,
+                        type = "basic",
+                        dialect = "rtbasic",
+                        isEditable = true,
+                        isExecutable = true,
+                        storage = m.Storage,
+                        origin = m.Origin,
+                        isDirty = m.IsDirty,
+                        lastSyncedUtc = m.LastSyncedUtc
+                    }).ToList();
+
+                return new { success = true, items };
             });
+        }
+
+        /// <summary>
+        /// 合并本地缓存 / 工程目录 / 控制器程序，统一 origin 词表：
+        /// project+controller | project | both(local+controller) | local | controller。
+        /// controllerPrograms 为 null 表示离线（不触发控制器连接）。
+        /// </summary>
+        private static List<MergedProgram> MergePrograms(
+            List<ProgramWorkspace.ProgramInfo> localPrograms,
+            List<ProgramWorkspace.ProgramInfo> projectPrograms,
+            ICollection<string> controllerPrograms)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in localPrograms) names.Add(p.name);
+            foreach (var p in projectPrograms) names.Add(p.name);
+            if (controllerPrograms != null)
+                foreach (var n in controllerPrograms) names.Add(n);
+
+            var result = new List<MergedProgram>(names.Count);
+            foreach (var name in names)
+            {
+                var local = localPrograms.FirstOrDefault(p => string.Equals(p.name, name, StringComparison.OrdinalIgnoreCase));
+                var proj = projectPrograms.FirstOrDefault(p => string.Equals(p.name, name, StringComparison.OrdinalIgnoreCase));
+                bool hasLocal = local != null;
+                bool hasProject = proj != null;
+                bool hasController = controllerPrograms != null
+                    && controllerPrograms.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+
+                string origin;
+                if (hasProject && hasController) origin = "project+controller";
+                else if (hasProject) origin = "project";
+                else if (hasLocal && hasController) origin = "both";
+                else if (hasLocal) origin = "local";
+                else origin = "controller";
+
+                result.Add(new MergedProgram
+                {
+                    Name = name,
+                    Origin = origin,
+                    Storage = hasProject ? "project" : (hasController ? "controller" : "local"),
+                    Group = hasProject ? "Project" : (hasController ? "Controller" : "Local"),
+                    IsDirty = local?.isDirty == true,
+                    LastSyncedUtc = local?.lastSyncedUtc
+                });
+            }
+            return result.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private sealed class MergedProgram
+        {
+            public string Name;
+            public string Origin;
+            public string Storage;
+            public string Group;
+            public bool IsDirty;
+            public string LastSyncedUtc;
         }
 
         public static object ReadSource(string name, Dictionary<string, object> body = null)
         {
             return Safe(async () =>
             {
-                var handle = await GetHandleAsync();
-                string source = await handle.ReadProgramAsync(name);
+                string source;
+                bool fromLocal = false;
+                bool fromProject = false;
+                bool fromEditor = false;
+
+                // 读取优先级：RTSys 编辑器（用户当前看到的内容，含未保存修改）
+                // → 当前项目目录 → 本地缓存 → 控制器。
+                if (RTSysEditor.TryRead(name, out var editorText))
+                {
+                    source = editorText;
+                    fromEditor = true;
+                }
+                else
+                {
+                    var projectSource = ProgramWorkspace.ReadProjectSource(name);
+                    var localSource = projectSource == null ? ProgramWorkspace.ReadLocalSource(name) : null;
+                    if (projectSource != null)
+                    {
+                        source = projectSource;
+                        fromProject = true;
+                    }
+                    else if (localSource != null)
+                    {
+                        source = localSource;
+                        fromLocal = true;
+                    }
+                    else
+                    {
+                        // 本地缓存未命中：若控制器已连接，从控制器拉取并缓存到本地；
+                        // 否则返回友好的控制器不可用错误（不抛异常）。
+                        var handle = await GetHandleAsync();
+                        source = await handle.ReadProgramAsync(name);
+                        ProgramWorkspace.WriteLocalSource(name, source);
+                        ProgramWorkspace.MarkSynced(name);
+                    }
+                }
+
                 var lines = source.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
 
                 int totalLines = lines.Length;
@@ -204,7 +907,10 @@ namespace RTSys.PlugIn
                         remainingLines = Math.Max(0, totalLines - end),
                         truncated = false,
                         type = "basic",
-                        dialect = "rtbasic"
+                        dialect = "rtbasic",
+                        fromLocal,
+                        fromProject,
+                        fromEditor
                     };
                 }
 
@@ -230,26 +936,90 @@ namespace RTSys.PlugIn
                         truncated = true,
                         hint = $"Large file ({totalLines} lines, {source.Length} chars). Use startLine={end + 1} to read next chunk.",
                         type = "basic",
-                        dialect = "rtbasic"
+                        dialect = "rtbasic",
+                        fromLocal,
+                        fromProject,
+                        fromEditor
                     };
                 }
 
-                return new { sourceCode = source, totalLines, type = "basic", dialect = "rtbasic" };
+                return new { sourceCode = source, totalLines, type = "basic", dialect = "rtbasic", fromLocal, fromProject, fromEditor };
             });
         }
 
         public static object WriteSource(string name, Dictionary<string, object> body)
         {
-            return Safe(async () =>
+            if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
+
+            return Safe(() =>
             {
                 var sourceCode = GetString(body, "sourceCode") ?? "";
                 var validationErrors = ValidateRtBasicCode(sourceCode);
                 if (validationErrors.Count > 0)
-                    return new { success = false, error = "BLOCKED by RTBasic validation:\n  " + string.Join("\n  ", validationErrors) };
+                    return Error("BLOCKED by RTBasic validation:\n  " + string.Join("\n  ", validationErrors));
 
-                var handle = await GetHandleAsync();
-                var (success, error) = await handle.CompileAndDownloadAsync(sourceCode, name);
-                return success ? new { success = true } : new { success = false, error = error };
+                // 优先：文件当前在 RTSys 编辑器中打开 → 写入编辑器并让宿主自己保存。
+                // 这样编辑器立即刷新，且宿主负责 UTF-8 → GBK 落盘。
+                if (RTSysEditor.TryWrite(name, sourceCode, true))
+                {
+                    ProgramWorkspace.WriteLocalSource(name, sourceCode);
+                    return new
+                    {
+                        success = true,
+                        savedToEditor = true,
+                        savedToProject = ProgramWorkspace.IsProjectAvailable,
+                        projectPath = GetProjectProgramPath(name),
+                        savedLocally = true,
+                        downloadedToController = false,
+                        pendingUpload = true,
+                        message = $"程序 '{name}' 已写入 RTSys 编辑器，并由 RTSys 保存到磁盘；本地缓存已更新。"
+                    };
+                }
+
+                // 有打开项目：写入项目文件（程序不在项目中则创建并加入 .zpj），同时更新本地缓存。
+                if (ProgramWorkspace.IsProjectAvailable)
+                {
+                    string writeError;
+                    bool created = false;
+                    if (ProgramWorkspace.ProjectProgramExists(name))
+                    {
+                        writeError = ProgramWorkspace.WriteProjectProgram(name, sourceCode);
+                    }
+                    else
+                    {
+                        writeError = ProgramWorkspace.CreateProjectProgram(name, sourceCode);
+                        created = true;
+                    }
+                    if (writeError != null) return Error(writeError);
+
+                    ProgramWorkspace.WriteLocalSource(name, sourceCode);
+                    return new
+                    {
+                        success = true,
+                        savedToProject = true,
+                        projectPath = GetProjectProgramPath(name),
+                        savedLocally = true,
+                        downloadedToController = false,
+                        pendingUpload = true,
+                        message = created
+                            ? $"程序 '{name}' 已创建并加入项目，同时更新本地缓存。"
+                            : $"程序 '{name}' 已写入项目文件，同时更新本地缓存。"
+                    };
+                }
+
+                // 无项目：仅写本地缓存（离线编辑），不触碰控制器。
+                ProgramWorkspace.WriteLocalSource(name, sourceCode);
+                return new
+                {
+                    success = true,
+                    savedToProject = false,
+                    savedLocally = true,
+                    downloadedToController = false,
+                    source = "local",
+                    origin = "local",
+                    pendingUpload = true,
+                    message = $"程序 '{name}' 已保存到本地缓存（离线编辑）。尚未下载到控制器；连接后再执行下载以生效。"
+                };
             });
         }
 
@@ -293,16 +1063,20 @@ namespace RTSys.PlugIn
         // ---- VR ----
         public static object ReadVR(int address, int count)
         {
+            if (count <= 0) return Error("count must be >= 1");
+            if (count > 1024) return Error("count too large (max 1024)");
             return Safe(async () =>
             {
                 var handle = await GetHandleAsync();
                 var values = await handle.ReadVRAsync(address, count);
-                return new { values = values.Select(v => (double?)v).ToList() };
+                return new { address, count, values = values.Select(v => (double?)v).ToList() };
             });
         }
 
         public static object WriteVR(int address, Dictionary<string, object> body)
         {
+            if (body == null || !body.ContainsKey("value"))
+                return Error("value is required (refusing to write an implicit 0)");
             return Safe(async () =>
             {
                 var handle = await GetHandleAsync();
@@ -315,11 +1089,13 @@ namespace RTSys.PlugIn
         // ---- TABLE ----
         public static object ReadTable(int address, int count)
         {
+            if (count <= 0) return Error("count must be >= 1");
+            if (count > 1024) return Error("count too large (max 1024)");
             return Safe(async () =>
             {
                 var handle = await GetHandleAsync();
                 var values = await handle.ReadTableAsync(address, count);
-                return new { values = values.Select(v => (double?)v).ToList() };
+                return new { address, count, values = values.Select(v => (double?)v).ToList() };
             });
         }
 
@@ -366,12 +1142,34 @@ namespace RTSys.PlugIn
             {
                 var handle = await GetHandleAsync();
                 byte count = handle.GetAxisCount();
+                if (count == 0)
+                    return Error("控制器未报告轴信息（ZMC_GetAxises 返回 0），无法列出轴；这不代表控制器没有轴。");
+
+                var states = await handle.GetAllAxisStatesAsync();
+                if (states == null || states.Length == 0)
+                    return Error($"控制器报告 {count} 个轴，但该 DLL 版本不提供轴状态（position/velocity/状态位），无法返回实时轴状态。");
+
                 var result = new List<object>();
                 for (byte i = 0; i < count; i++)
                 {
-                    result.Add(new { index = i, name = $"Axis{i}", typeName = "RTSys", slot = 0 });
+                    var s = i < states.Length ? states[i] : default(ZMotionExtensions.AxisState);
+                    result.Add(new
+                    {
+                        index = (int)i,
+                        name = $"Axis{i}",
+                        typeName = "RTSys",
+                        position = s.position,
+                        targetPos = s.targetPos,
+                        velocity = s.velocity,
+                        error = s.error,
+                        status = $"0x{s.status:X}",
+                        servoStatus = s.servoStatus,
+                        homeStatus = s.homeStatus,
+                        limitStatus = s.limitStatus,
+                        alarmCode = s.alarmCode
+                    });
                 }
-                return new { axes = result };
+                return new { axisCount = (int)count, axes = result };
             });
         }
 
@@ -428,7 +1226,6 @@ namespace RTSys.PlugIn
             return Safe(async () =>
             {
                 var handle = await GetHandleAsync();
-                // ZMotionAPI 没有直接读输出的独立函数，用 GetInAll/GetOutAll 替代
                 var all = await handle.GetOutAllAsync();
                 int byteIdx = index / 8;
                 int bitIdx = index % 8;
@@ -505,37 +1302,198 @@ namespace RTSys.PlugIn
             });
         }
 
-        // ---- Search Code (local cache only - not applicable for RTSys, return empty) ----
-        public static object SearchCode(string query)
+        // ---- Search Code (searches local cache; works offline) ----
+        public static object SearchCode(string query, bool caseSensitive = false)
         {
-            return new { query = query, matchCount = 0, results = new object[0] };
+            if (string.IsNullOrEmpty(query))
+                return new { query = query, matchCount = 0, results = new object[0] };
+
+            var cmp = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+            // 项目目录优先（同名程序以项目文件为准），其次本地缓存。
+            var sources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var origins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var prog in ProgramWorkspace.ListProjectPrograms())
+            {
+                var s = ProgramWorkspace.ReadProjectSource(prog.name);
+                if (s != null) { sources[prog.name] = s; origins[prog.name] = "project"; }
+            }
+            foreach (var prog in ProgramWorkspace.ListLocalPrograms())
+            {
+                if (sources.ContainsKey(prog.name)) continue;
+                var s = ProgramWorkspace.ReadLocalSource(prog.name);
+                if (s != null) { sources[prog.name] = s; origins[prog.name] = prog.origin; }
+            }
+
+            var results = new List<object>();
+            foreach (var kv in sources)
+            {
+                var lines = kv.Value.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].IndexOf(query, cmp) >= 0)
+                    {
+                        results.Add(new
+                        {
+                            program = kv.Key,
+                            line = i + 1,
+                            text = lines[i].Trim(),
+                            origin = origins[kv.Key]
+                        });
+                    }
+                }
+            }
+
+            return new
+            {
+                query = query,
+                matchCount = results.Count,
+                results
+            };
         }
 
-        // ---- Project Management (stubs for compatibility) ----
+        // ---- Project Management ----
+
+        /// <summary>在当前 RTSys 项目目录中定位程序 .bas 文件；找不到返回 null。</summary>
+        private static string GetProjectProgramPath(string name)
+        {
+            var dir = ProgramWorkspace.ProjectDir;
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
+            try
+            {
+                var sanitized = ProgramWorkspace.SanitizeName(name);
+                foreach (var candidate in new[] { name, sanitized })
+                {
+                    var direct = Path.Combine(dir, candidate + ".bas");
+                    if (File.Exists(direct)) return direct;
+                }
+                foreach (var f in Directory.GetFiles(dir, "*.bas", SearchOption.AllDirectories))
+                {
+                    var stem = Path.GetFileNameWithoutExtension(f);
+                    if (string.Equals(stem, name, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(stem, sanitized, StringComparison.OrdinalIgnoreCase))
+                        return f;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>当前项目目录下的 .zpj 文件（取最近修改的一个）；找不到返回 null。</summary>
+        private static string GetProjectZpjFile()
+        {
+            var dir = ProgramWorkspace.ProjectDir;
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
+            try
+            {
+                var files = Directory.GetFiles(dir, "*.zpj");
+                return files.Length == 0 ? null : files.OrderByDescending(File.GetLastWriteTimeUtc).First();
+            }
+            catch { return null; }
+        }
+
+        /// <summary>当前打开项目的信息（目录、.zpj、程序文件清单）。</summary>
+        private static object GetProjectInfo()
+        {
+            var files = ProgramWorkspace.ListProjectPrograms()
+                .Select(p => new { name = p.name, path = GetProjectProgramPath(p.name) })
+                .ToList();
+            return new
+            {
+                success = true,
+                projectDir = ProgramWorkspace.ProjectDir,
+                zpjFile = GetProjectZpjFile(),
+                files
+            };
+        }
+
         public static object OpenProject(Dictionary<string, object> body)
         {
-            return Error("RTSys does not support project files. Use controller programs directly.");
+            if (!ProgramWorkspace.IsProjectAvailable)
+                return Error("当前没有打开的 RTSys 项目。请先在 RTSys 中打开一个项目（.zpj）。");
+            return GetProjectInfo();
         }
 
         public static object SaveProject()
         {
-            return Error("RTSys does not support project files.");
+            if (!ProgramWorkspace.IsProjectAvailable)
+                return Error("RTSys does not support project files.");
+            // 项目文件（.bas）在每次写入后已落盘，.zpj 由项目本身维护，无需额外动作。
+            return GetProjectInfo();
         }
 
         public static object ListProjectItems()
         {
+            var localPrograms = ProgramWorkspace.ListLocalPrograms();
+            var projectPrograms = ProgramWorkspace.ListProjectPrograms();
+            var hmiNames = ProgramWorkspace.ListProjectHmiFiles();
+
+            // 无活动连接：返回当前项目目录 + 本地缓存的程序（离线可用，不触发连接）。
+            if (!HasLiveConnection)
+            {
+                var items = new List<object>();
+                foreach (var m in MergePrograms(localPrograms, projectPrograms, null))
+                {
+                    items.Add(new
+                    {
+                        name = m.Name,
+                        typeName = "Program",
+                        group = m.Group,
+                        itemType = "basic",
+                        origin = m.Origin,
+                        isDirty = m.IsDirty,
+                        lastSyncedUtc = m.LastSyncedUtc
+                    });
+                }
+                foreach (var hmi in hmiNames)
+                {
+                    items.Add(new
+                    {
+                        name = hmi,
+                        typeName = "HMI",
+                        group = "HMI",
+                        itemType = "hmi",
+                        origin = "project",
+                        isDirty = false,
+                        lastSyncedUtc = (string)null
+                    });
+                }
+                return new { success = true, items, fileName = ProgramWorkspace.ProjectDir ?? "RTSys Controller (Local Cache)" };
+            }
+
             return Safe(async () =>
             {
                 var handle = await GetHandleAsync();
                 var programs = await handle.ListProgramsAsync();
-                var items = programs.Select(p => new
+
+                var items = new List<object>();
+                foreach (var m in MergePrograms(localPrograms, projectPrograms, programs))
                 {
-                    name = p,
-                    typeName = "Program",
-                    group = "Controller",
-                    itemType = "basic"
-                }).ToList();
-                return new { items = items, fileName = "RTSys Controller" };
+                    items.Add(new
+                    {
+                        name = m.Name,
+                        typeName = "Program",
+                        group = m.Group,
+                        itemType = "basic",
+                        origin = m.Origin,
+                        isDirty = m.IsDirty,
+                        lastSyncedUtc = m.LastSyncedUtc
+                    });
+                }
+                foreach (var hmi in hmiNames)
+                {
+                    items.Add(new
+                    {
+                        name = hmi,
+                        typeName = "HMI",
+                        group = "HMI",
+                        itemType = "hmi",
+                        origin = "project",
+                        isDirty = false,
+                        lastSyncedUtc = (string)null
+                    });
+                }
+                return new { success = true, items, fileName = ProgramWorkspace.ProjectDir ?? "RTSys Controller" };
             });
         }
 
@@ -562,7 +1520,7 @@ namespace RTSys.PlugIn
         }
 
         // ---- Motion/Drive/EtherCAT (delegate to ZMotionExtensions) ----
-        public static object ReadDriveParam(int axis, int address, int numFractionDigits = 4)
+        public static object ReadDriveParam(int axis, int address)
         {
             return Safe(async () =>
             {
@@ -586,12 +1544,8 @@ namespace RTSys.PlugIn
 
         public static object ScanEtherCAT(int slot)
         {
-            return Safe(async () =>
-            {
-                var handle = await GetHandleAsync();
-                // 简化：仅返回占位
-                return new { slot = slot, devices = new object[0], message = "Use ZMotionExtensions for full EtherCAT scan" };
-            });
+            // zmotion.dll 没有 EtherCAT 设备扫描导出；不能返回伪造的空设备列表。
+            return Error("EtherCAT device scan is not exposed by zmotion.dll. Use read_ethercat_sdo with a known device position/index, or scan from the RTSys UI.");
         }
 
         public static object EtherCATReadSDO(int slot, uint position, uint index, uint subindex, string typeStr)
@@ -626,27 +1580,6 @@ namespace RTSys.PlugIn
 
             var lines = code.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
 
-            // 关键字白名单
-            var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "MOVE", "MOVEABS", "MOVEREL", "MOVEVEL", "JOG", "HOME",
-                "SPEED", "ACCEL", "DECEL", "JERK",
-                "IF", "THEN", "ELSE", "ENDIF",
-                "FOR", "TO", "STEP", "NEXT",
-                "WHILE", "WEND",
-                "REPEAT", "UNTIL",
-                "GOSUB", "RETURN", "GOTO",
-                "WAIT", "DELAY", "PAUSE",
-                "VR", "TABLE", "IN", "OUT", "OP",
-                "AXIS", "AXES",
-                "SERVO", "ENABLE", "DISABLE",
-                "ERROR", "ONERROR", "OFFERROR",
-                "DIM", "AS", "CONST",
-                "PRINT", "INPUT",
-                "REM", "'",
-                "TRUE", "FALSE", "ON", "OFF"
-            };
-
             // 危险模式检测
             var dangerousPatterns = new[]
             {
@@ -676,7 +1609,7 @@ namespace RTSys.PlugIn
 
         private static int ParseCODataType(string s)
         {
-            if (string.IsNullOrEmpty(s)) return 7; // UINT16
+            if (string.IsNullOrEmpty(s)) return 7; // UINT32
             switch (s.ToLowerInvariant())
             {
                 case "bool": return 1;
@@ -760,13 +1693,34 @@ namespace RTSys.PlugIn
 
         public static object PatchSource(string name, Dictionary<string, object> body)
         {
+            if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
             var ops = GetArray(body, "operations");
             if (ops == null || ops.Length == 0) return Error("operations is required");
 
-            return Safe(async () =>
+            return Safe(() =>
             {
-                var handle = await GetHandleAsync();
-                string currentSource = await handle.ReadProgramAsync(name);
+                // 源解析顺序：RTSys 编辑器（含未保存修改）→ 项目文件 → 本地缓存。
+                bool fromEditor = false;
+                bool fromProject = false;
+                string currentSource = null;
+                if (RTSysEditor.TryRead(name, out var editorSource))
+                {
+                    currentSource = editorSource;
+                    fromEditor = true;
+                }
+                else
+                {
+                    fromProject = ProgramWorkspace.IsProjectAvailable;
+                    currentSource = fromProject ? ProgramWorkspace.ReadProjectSource(name) : null;
+                    if (currentSource == null)
+                    {
+                        fromProject = false;
+                        currentSource = ProgramWorkspace.ReadLocalSource(name);
+                    }
+                }
+                if (currentSource == null)
+                    return Error($"程序 '{name}' 不存在（项目、编辑器和本地缓存均未找到）");
+
                 currentSource = currentSource.Replace("\r\n", "\n").Replace("\r", "\n");
 
                 var editOps = ops.Select(op => op as Dictionary<string, object>)
@@ -793,10 +1747,34 @@ namespace RTSys.PlugIn
                     currentSource = currentSource.Substring(0, pos) + op.newString + currentSource.Substring(pos + op.oldString.Length);
                 }
 
-                var (success, error) = await handle.CompileAndDownloadAsync(currentSource, name);
-                if (!success)
-                    return Error(error ?? "CompileAndDownload failed");
-                return new { success = true };
+                // 写回同一来源，并同步更新本地缓存。
+                if (fromEditor)
+                {
+                    RTSysEditor.TryWrite(name, currentSource, true);
+                }
+                else if (fromProject)
+                {
+                    var writeError = ProgramWorkspace.WriteProjectProgram(name, currentSource);
+                    if (writeError != null) return Error(writeError);
+                }
+                ProgramWorkspace.WriteLocalSource(name, currentSource);
+
+                return new
+                {
+                    success = true,
+                    savedToEditor = fromEditor,
+                    savedToProject = fromProject,
+                    projectPath = fromProject ? GetProjectProgramPath(name) : null,
+                    savedLocally = true,
+                    downloadedToController = false,
+                    source = fromEditor ? "editor" : (fromProject ? "project" : "local"),
+                    pendingUpload = true,
+                    message = fromEditor
+                        ? $"程序 '{name}' 的补丁已写入 RTSys 编辑器，并由 RTSys 保存到磁盘。"
+                        : (fromProject
+                            ? $"程序 '{name}' 的补丁已写回项目文件，并更新本地缓存。"
+                            : $"程序 '{name}' 的补丁已写入本地缓存（离线编辑）。")
+                };
             });
         }
 
@@ -808,22 +1786,241 @@ namespace RTSys.PlugIn
 
         public static object CopyProgram(string name, Dictionary<string, object> body)
         {
-            return Error("CopyProgram not supported on RTSys (no project files).");
+            if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
+            var newName = GetString(body, "newName");
+            if (string.IsNullOrWhiteSpace(newName)) return Error("newName is required");
+            if (string.Equals(name, newName, StringComparison.OrdinalIgnoreCase))
+                return Error("源程序名与目标程序名相同");
+
+            var localSource = ProgramWorkspace.ReadLocalSource(name);
+            bool inProject = ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(name);
+            if (!inProject && localSource == null)
+                return Error($"程序 '{name}' 不存在（项目和本地缓存均未找到）");
+
+            if (ProgramWorkspace.ReadLocalSource(newName) != null ||
+                (ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(newName)))
+                return Error($"程序 '{newName}' 已存在");
+
+            bool copiedToProject = false;
+            bool internalProjectModel = false;
+            if (inProject)
+            {
+                var copyError = ProgramWorkspace.CopyProjectProgram(name, newName);
+                if (copyError != null) return Error(copyError);
+                copiedToProject = true;
+
+                // 宿主内部模型：把副本加入工程树；失败时保留文件级结果。
+                string modelError;
+                internalProjectModel = RTSysProjectModel.TryAddFileEntry(newName + ".bas", out modelError);
+                if (!internalProjectModel)
+                    PlugInLog.Log("CopyProgram(" + newName + "): internal add skipped/failed: " + modelError);
+            }
+
+            // 同时复制本地缓存。
+            bool copiedLocally = localSource != null;
+            if (copiedLocally)
+                ProgramWorkspace.WriteLocalSource(newName, localSource);
+
+            return new
+            {
+                success = true,
+                sourceName = name,
+                newName,
+                copiedToProject,
+                internalProjectModel,
+                copiedLocally,
+                projectPath = copiedToProject ? GetProjectProgramPath(newName) : null,
+                message = $"程序 '{name}' 已复制为 '{newName}'。"
+            };
         }
 
         public static object CreateProgram(Dictionary<string, object> body)
         {
-            return Error("CreateProgram not supported on RTSys (no project files). Use WriteSource directly.");
+            return Safe(() =>
+            {
+                var progName = GetString(body, "name") ?? "";
+                if (string.IsNullOrWhiteSpace(progName))
+                    return Error("程序名不能为空");
+
+                // 不允许创建同名程序（项目或本地缓存）。
+                if (ProgramWorkspace.ReadLocalSource(progName) != null)
+                    return Error($"程序 '{progName}' 已存在（本地缓存中）");
+                if (ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(progName))
+                    return Error($"程序 '{progName}' 已存在（项目中）");
+
+                var source = GetString(body, "sourceCode") ?? GetDefaultProgramSource(progName);
+
+                // 有打开项目：创建程序并加入 .zpj，同时写入本地缓存。
+                if (ProgramWorkspace.IsProjectAvailable)
+                {
+                    var createError = ProgramWorkspace.CreateProjectProgram(progName, source);
+                    if (createError != null) return Error(createError);
+
+                    ProgramWorkspace.WriteLocalSource(progName, source);
+
+                    // 宿主内部模型：把新程序加入工程树；失败时保留文件级结果。
+                    string modelError;
+                    bool internalProjectModel = RTSysProjectModel.TryAddFileEntry(progName + ".bas", out modelError);
+                    if (!internalProjectModel)
+                        PlugInLog.Log("CreateProgram(" + progName + "): internal add skipped/failed: " + modelError);
+
+                    return new
+                    {
+                        success = true,
+                        savedToProject = true,
+                        projectPath = GetProjectProgramPath(progName),
+                        savedLocally = true,
+                        internalProjectModel,
+                        pendingUpload = true,
+                        message = internalProjectModel
+                            ? $"程序 '{progName}' 已创建并加入工程（工程树已同步），同时保存到本地缓存。"
+                            : $"程序 '{progName}' 已创建并加入项目文件，同时保存到本地缓存。"
+                    };
+                }
+
+                // 无项目：仅写本地缓存（离线编辑），不触碰控制器。
+                ProgramWorkspace.WriteLocalSource(progName, source);
+                return new
+                {
+                    success = true,
+                    savedToProject = false,
+                    savedLocally = true,
+                    downloadedToController = false,
+                    source = "local",
+                    origin = "local",
+                    pendingUpload = true,
+                    message = $"程序 '{progName}' 已新建并保存到本地缓存。尚未下载到控制器；连接后再执行下载以生效。"
+                };
+            });
+        }
+
+        /// <summary>生成默认 RTBasic 程序源码。</summary>
+        private static string GetDefaultProgramSource(string progName)
+        {
+            return $@"'{progName} - 新建程序
+' 自动生成于 {DateTime.Now:yyyy-MM-dd HH:mm:ss}
+
+SPEED(100)
+ACCEL(500)
+DECEL(500)
+
+MOVEABS(0, 0)
+HOME(0)
+
+END
+";
         }
 
         public static object DeleteProgram(string name)
         {
-            return Error("DeleteProgram not supported on RTSys (no project files).");
+            if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
+
+            bool inProject = ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(name);
+            bool inLocal = ProgramWorkspace.ReadLocalSource(name) != null;
+            if (!inProject && !inLocal)
+                return Error($"程序 '{name}' 不存在（项目和本地缓存均未找到）");
+
+            bool internalProjectModel = false;
+            if (inProject)
+            {
+                // 优先走宿主内部工程模型：选中树节点并调用宿主“删除文件”处理器，
+                // 让 RTSys 自己更新内存模型、工程树与 .zpj（避免外部删文件后树残留）。
+                string modelError;
+                if (RTSysProjectModel.TryDelete(name, out modelError))
+                {
+                    internalProjectModel = true;
+                    // 宿主只更新内存模型/工程树；磁盘文件与 .zpj 条目由这里同步删除。
+                    var syncError = ProgramWorkspace.DeleteProjectProgram(name);
+                    if (syncError != null)
+                        PlugInLog.Log("DeleteProgram(" + name + "): internal delete ok, disk sync failed: " + syncError);
+                }
+                else
+                {
+                    var deleteError = ProgramWorkspace.DeleteProjectProgram(name);
+                    if (deleteError != null) return Error(deleteError + (modelError != null ? " (internal: " + modelError + ")" : ""));
+                }
+            }
+            if (inLocal)
+                ProgramWorkspace.DeleteLocalSource(name);
+
+            return new
+            {
+                success = true,
+                name,
+                deletedFromProject = inProject,
+                deletedLocally = inLocal,
+                internalProjectModel,
+                message = internalProjectModel
+                    ? $"程序 '{name}' 已通过 RTSys 工程模型删除（工程树与 .zpj 同步更新）。"
+                    : (inProject && inLocal
+                        ? $"程序 '{name}' 已从项目和本地缓存中删除。"
+                        : (inProject
+                            ? $"程序 '{name}' 已从项目中删除。"
+                            : $"程序 '{name}' 已从本地缓存中删除。"))
+            };
         }
 
         public static object RenameProgram(string name, Dictionary<string, object> body)
         {
-            return Error("RenameProgram not supported on RTSys (no project files).");
+            if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
+            var newName = GetString(body, "newName");
+            if (string.IsNullOrWhiteSpace(newName)) return Error("newName is required");
+            var newNameError = ProgramWorkspace.ValidateProgramName(newName);
+            if (newNameError != null) return Error(newNameError);
+            if (string.Equals(name, newName, StringComparison.OrdinalIgnoreCase))
+                return Error("源程序名与目标程序名相同");
+
+            var oldLocal = ProgramWorkspace.ReadLocalSource(name);
+            bool inProject = ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(name);
+            if (!inProject && oldLocal == null)
+                return Error($"程序 '{name}' 不存在（项目和本地缓存均未找到）");
+
+            if (ProgramWorkspace.ReadLocalSource(newName) != null ||
+                (ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(newName)))
+                return Error($"程序 '{newName}' 已存在");
+
+            bool renamedInProject = false;
+            bool internalProjectModel = false;
+            if (inProject)
+            {
+                // 优先走宿主内部工程模型：宿主同时完成磁盘改名、模型与工程树刷新。
+                string modelError;
+                if (RTSysProjectModel.TryRename(name, newName, out modelError))
+                {
+                    internalProjectModel = true;
+                    renamedInProject = true;
+                    // 宿主只更新内存模型；同步 .zpj 中的文件名（磁盘文件已由宿主改名）。
+                    var syncError = ProgramWorkspace.RenameProjectEntry(name, newName);
+                    if (syncError != null)
+                        PlugInLog.Log("RenameProgram(" + name + "): internal rename ok, .zpj sync failed: " + syncError);
+                }
+                else
+                {
+                    var renameError = ProgramWorkspace.RenameProjectProgram(name, newName);
+                    if (renameError != null) return Error(renameError);
+                    renamedInProject = true;
+                }
+            }
+
+            // 本地缓存改名：读旧 → 写新 → 删旧。
+            bool renamedLocally = oldLocal != null;
+            if (renamedLocally)
+            {
+                ProgramWorkspace.WriteLocalSource(newName, oldLocal);
+                ProgramWorkspace.DeleteLocalSource(name);
+            }
+
+            return new
+            {
+                success = true,
+                oldName = name,
+                newName,
+                renamedInProject,
+                internalProjectModel,
+                renamedLocally,
+                projectPath = renamedInProject ? GetProjectProgramPath(newName) : null,
+                message = $"程序 '{name}' 已重命名为 '{newName}'。"
+            };
         }
 
         public static object Download(string name)
@@ -838,7 +2035,25 @@ namespace RTSys.PlugIn
 
         public static object OpenProgram(string name)
         {
-            return Error("OpenProgram not supported on RTSys (no editor integration).");
+            if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
+            if (!ProgramWorkspace.IsProjectAvailable)
+                return Error("OpenProgram not supported on RTSys (no editor integration).");
+
+            var path = GetProjectProgramPath(name);
+            if (path == null)
+                return Error($"程序无对应磁盘文件：{name}");
+
+            var source = ProgramWorkspace.ReadProjectSource(name);
+            if (source == null)
+                return Error($"无法读取程序文件：{path}");
+
+            return new
+            {
+                success = true,
+                path,
+                sourceCode = source,
+                note = "Open this file from the RTSys project tree; it is already on disk."
+            };
         }
 
         public static object GetProgramProcess(string name)
@@ -888,7 +2103,40 @@ namespace RTSys.PlugIn
 
         public static object ListAttachedPlugins()
         {
-            return new { plugins = new object[0] };
+            try
+            {
+                var roots = new List<string>();
+                try
+                {
+                    var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                    if (!string.IsNullOrEmpty(baseDir))
+                        roots.Add(Path.Combine(baseDir, "Plug_in"));
+                }
+                catch { }
+                try
+                {
+                    var asmDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+                    if (!string.IsNullOrEmpty(asmDir))
+                        roots.Add(Path.GetDirectoryName(asmDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+                }
+                catch { }
+
+                foreach (var root in roots)
+                {
+                    if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+                    var plugins = new List<object>();
+                    foreach (var dir in Directory.GetDirectories(root))
+                    {
+                        var dlls = Directory.GetFiles(dir, "*.dll")
+                            .Select(f => Path.GetFileName(f)).ToList();
+                        // 不返回安装目录绝对路径，避免通过 HTTP 泄露本机目录结构。
+                        plugins.Add(new { name = Path.GetFileName(dir), dlls });
+                    }
+                    return new { success = true, plugins };
+                }
+                return new { success = false, error = "Plug_in directory not found", plugins = new object[0] };
+            }
+            catch (Exception ex) { return Error(ex.Message); }
         }
 
         public static object ListRecipes()
@@ -908,37 +2156,127 @@ namespace RTSys.PlugIn
 
         public static object ListAlarms()
         {
-            return Error("Alarms not supported on RTSys.");
+            return Safe(async () =>
+            {
+                var handle = await GetHandleAsync();
+                int lastError = await handle.GetLastErrorAsync();
+                var states = await handle.GetAllAxisStatesAsync();
+                var axisAlarms = new List<object>();
+                for (int i = 0; i < states.Length; i++)
+                {
+                    if (states[i].alarmCode != 0)
+                        axisAlarms.Add(new { axis = i, alarmCode = states[i].alarmCode });
+                }
+                return new
+                {
+                    success = true,
+                    lastError,
+                    lastErrorDescription = ZMotionErrors.GetDescription(lastError),
+                    axisAlarms,
+                    note = "zmotion.dll exposes only the last controller error code and per-axis alarm codes; there is no alarm history/table."
+                };
+            });
         }
 
         public static object ListDigitalIO()
         {
-            return Error("Digital IO not supported on RTSys (no direct hardware access).");
+            return Safe(async () =>
+            {
+                var handle = await GetHandleAsync();
+                var spec = await handle.GetSysSpecificationAsync();
+                int inCount = spec.ioInCount;
+                int outCount = spec.ioOutCount;
+                if (inCount <= 0 && outCount <= 0)
+                    return Error("控制器未提供数字 IO 规格（IO 数量不可用），无法列出数字 IO；这不代表控制器没有 IO。");
+                var inBytes = await handle.GetInAllAsync();
+                var outBytes = await handle.GetOutAllAsync();
+                var inputs = new List<object>();
+                var outputs = new List<object>();
+                for (int i = 0; i < inCount; i++)
+                    inputs.Add(new { index = i, value = GetBit(inBytes, i) });
+                for (int i = 0; i < outCount; i++)
+                    outputs.Add(new { index = i, value = GetBit(outBytes, i) });
+                return new { ioInCount = inCount, ioOutCount = outCount, inputs, outputs };
+            });
+        }
+
+        private static bool GetBit(byte[] data, int index)
+        {
+            int byteIdx = index / 8;
+            int bitIdx = index % 8;
+            return byteIdx >= 0 && byteIdx < data.Length && (data[byteIdx] & (1 << bitIdx)) != 0;
         }
 
         public static object ReadDigitalIO(int index)
         {
-            return Error("Digital IO not supported on RTSys.");
+            if (index < 0) return Error("index must be >= 0");
+            return Safe(async () =>
+            {
+                var handle = await GetHandleAsync();
+                bool input = await handle.GetInAsync((short)index);
+                bool? output = null;
+                try { output = await handle.GetOutputAsync((short)index); } catch { }
+                return new { index, input, output };
+            });
         }
 
         public static object WriteDigitalIO(int index, Dictionary<string, object> body)
         {
-            return Error("Digital IO not supported on RTSys.");
+            if (body == null || !body.ContainsKey("value"))
+                return Error("value is required");
+            return Safe(async () =>
+            {
+                var handle = await GetHandleAsync();
+                bool value = GetBool(body, "value");
+                await handle.SetOutputAsync((short)index, value);
+                return new { success = true, index, value };
+            });
         }
 
         public static object ListAnalogueIO()
         {
-            return Error("Analogue IO not supported on RTSys.");
+            return Safe(async () =>
+            {
+                var handle = await GetHandleAsync();
+                var spec = await handle.GetSysSpecificationAsync();
+                int aiCount = spec.aiCount;
+                int aoCount = spec.aoCount;
+                if (aiCount <= 0 && aoCount <= 0)
+                    return Error("控制器未提供模拟 IO 规格（通道数不可用），无法列出模拟 IO；这不代表控制器没有模拟通道。");
+                var inputs = new List<object>();
+                var outputs = new List<object>();
+                for (int i = 0; i < aiCount; i++)
+                    inputs.Add(new { index = i, value = await handle.GetAInAsync((short)i) });
+                for (int i = 0; i < aoCount; i++)
+                    outputs.Add(new { index = i, value = await handle.GetDaOutAsync((short)i) });
+                return new { aiCount, aoCount, inputs, outputs };
+            });
         }
 
         public static object ReadAnalogueIO(int index)
         {
-            return Error("Analogue IO not supported on RTSys.");
+            if (index < 0) return Error("index must be >= 0");
+            return Safe(async () =>
+            {
+                var handle = await GetHandleAsync();
+                float input = await handle.GetAInAsync((short)index);
+                float? output = null;
+                try { output = await handle.GetDaOutAsync((short)index); } catch { }
+                return new { index, input, output };
+            });
         }
 
         public static object WriteAnalogueIO(int index, Dictionary<string, object> body)
         {
-            return Error("Analogue IO not supported on RTSys.");
+            if (body == null || !body.ContainsKey("value"))
+                return Error("value is required");
+            return Safe(async () =>
+            {
+                var handle = await GetHandleAsync();
+                float value = (float)GetDouble(body, "value");
+                await handle.SetDaOutAsync((short)index, value);
+                return new { success = true, index, value };
+            });
         }
 
         public static object ScanMsBus(int slot)

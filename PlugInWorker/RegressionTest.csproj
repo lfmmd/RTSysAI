@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>RTSysPlugInWorkerTests</AssemblyName>
+    <RootNamespace>RTSys.PlugIn.Tests</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <PlatformTarget>x86</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\Test\</OutputPath>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="TrioSharedLibrary">
+      <HintPath>..\..\TrioSharedLibrary.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="TrioCommunicationsLibrary">
+      <HintPath>..\..\TrioCommunicationsLibrary.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="TrioBaseLib">
+      <HintPath>..\..\TrioBaseLib.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- AiService 是 partial class，工具分发在 AiTools.cs，必须带上全部 Ai*.cs 分部文件 -->
+    <Compile Include="Ai*.cs" />
+    <Compile Include="ProgramWorkspace.cs" />
+    <Compile Include="DispatcherHelper.cs" />
+    <Compile Include="PlugInLog.cs" />
+    <Compile Include="Lang.cs" />
+    <Compile Include="ZMotionAPI.cs" />
+    <Compile Include="ZMotionExtensions.cs" />
+    <Compile Include="ZMotionHandle.cs" />
+    <Compile Include="ZMotionErrors.cs" />
+    <Compile Include="RTSysHandlers.cs" />
+    <Compile Include="HmiFile.cs" />
+    <Compile Include="RTSysEditor.cs" />
+    <Compile Include="RTSysProjectModel.cs" />
+    <Compile Include="ApiServer.cs" />
+    <Compile Include="RegressionTestMain.cs" />
+  </ItemGroup>
+</Project>
