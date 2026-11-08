@@ -147,6 +147,10 @@ namespace RTSys.PlugIn.Tests
                 TestLookupCommandOutput();
                 Console.WriteLine();
 
+                Console.WriteLine("Test Group 15: Active Editor File From Window Title");
+                TestActiveEditorFileParsing();
+                Console.WriteLine();
+
             }
             finally
             {
@@ -386,6 +390,27 @@ namespace RTSys.PlugIn.Tests
             BitConverter.GetBytes((ushort)x).CopyTo(p, 8);
             BitConverter.GetBytes((ushort)y).CopyTo(p, 10);
             return p;
+        }
+
+        /// <summary>标题栏解析当前编辑文件：正常格式、未保存标记、无文件、项目名不误判。</summary>
+        private static void TestActiveEditorFileParsing()
+        {
+            AssertEqual("FMARK.bas",
+                ProgramWorkspace.ParseEditorFileFromTitle(
+                    @"全伺服动作制袋机.zpj - RTSys V1.3.02 - C:\Users\LFMMD\Desktop\works\正运动\全伺服动作制袋机\ - FMARK.bas"),
+                "标题含 .bas 时解析出当前编辑文件");
+            AssertEqual("Main.bas",
+                ProgramWorkspace.ParseEditorFileFromTitle(@"TestPro.zpj - RTSys V1.3.02 - C:\demo\ - *Main.bas"),
+                "未保存标记 * 前缀不影响解析");
+            AssertEqual("Hmi1.hmi",
+                ProgramWorkspace.ParseEditorFileFromTitle(@"TestPro.zpj - RTSys V1.3.02 - C:\demo\ - Hmi1.hmi"),
+                "HMI 画面也能解析");
+            AssertEqual(null,
+                ProgramWorkspace.ParseEditorFileFromTitle(@"TestPro.zpj - RTSys V1.3.02 - C:\demo\"),
+                "仅打开工程未打开文件时返回 null");
+            AssertEqual(null,
+                ProgramWorkspace.ParseEditorFileFromTitle(@"TestPro.zpj - RTSys V1.3.02"),
+                "标题只有工程名时不把 .zpj 当编辑文件");
         }
 
         /// <summary>

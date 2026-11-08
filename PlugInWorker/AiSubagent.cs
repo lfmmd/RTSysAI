@@ -211,6 +211,19 @@ namespace RTSys.PlugIn
                     { "text", dialectHint }
                 });
             }
+            // 当前编辑器激活文档：子 agent 拿不到主线 BuildDynamicContext，任务未点名文件时
+            // 也需要知道宿主正在编辑哪个文件，才能把“当前文件/这个程序”聚焦到正确的目标。
+            var activeFile = ProgramWorkspace.CurrentEditorFile;
+            if (!string.IsNullOrEmpty(activeFile))
+            {
+                var activePath = ProgramWorkspace.CurrentEditorPath;
+                subSystem.Add(new Dictionary<string, object>
+                {
+                    { "type", "text" },
+                    { "text", "## Current editor file\n\nThe RTSys editor currently shows: " + (activePath ?? activeFile)
+                        + ". If the task refers to \"this file\" / \"当前文件\" / \"这个程序\" without naming one, treat this as the target." }
+                });
+            }
             // 注入持久化记忆：子 agent 拿不到主线历史/项目上下文/task 清单，memory 是它了解用户偏好
             // （语言、注释风格等）与项目约定的唯一补充来源。与主线一致（CallApiStream 的 memory 块）。
             // 放在 prompt 块之后且不加 cache_control——prompt 块保留前缀缓存断点，memory 变化不影响其缓存。

@@ -131,6 +131,68 @@ namespace RTSys.PlugIn
         }
 
         /// <summary>
+        /// 当前编辑器激活的文档文件名（宿主标题栏最后一段，如 FMARK.bas）；取不到返回 null。
+        /// 支持 RTBasic 程序（.bas）、HMI 画面（.hmi）与 PLC 程序（.plc）。
+        /// </summary>
+        public static string CurrentEditorFile
+        {
+            get
+            {
+                try
+                {
+                    return ParseEditorFileFromTitle(
+                        System.Diagnostics.Process.GetCurrentProcess().MainWindowTitle);
+                }
+                catch { return null; }
+            }
+        }
+
+        /// <summary>从窗口标题解析当前编辑的文档名（纯函数，便于回归测试）。</summary>
+        internal static string ParseEditorFileFromTitle(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return null;
+            var segs = title.Split(new[] { " - " }, StringSplitOptions.None);
+            for (int i = segs.Length - 1; i >= 0; i--)
+            {
+                // 兼容未保存标记（如 *FMARK.bas / FMARK.bas*）。
+                var name = Path.GetFileName(segs[i].Trim().Trim('"')).Trim('*');
+                if (name.EndsWith(".bas", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith(".hmi", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith(".plc", StringComparison.OrdinalIgnoreCase))
+                    return name;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 当前编辑器激活文档的完整路径；无法定位时返回 null。
+        /// 先在项目根目录解析，再按 .zpj 清单在子目录中匹配同名文件。
+        /// </summary>
+        public static string CurrentEditorPath
+        {
+            get
+            {
+                var name = CurrentEditorFile;
+                if (string.IsNullOrEmpty(name)) return null;
+                var dir = ProjectDir;
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
+
+                var direct = ResolveInside(dir, name);
+                if (direct != null && File.Exists(direct)) return direct;
+
+                foreach (var entry in ReadZpjFileList(dir))
+                {
+                    if (string.Equals(Path.GetFileName(entry.Item1), name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var p = ResolveInside(dir, entry.Item1);
+                        if (p != null && File.Exists(p)) return p;
+                    }
+                }
+                return null;
+            }
+        }
+
+        /// <summary>
         /// 解析 .zpj 的 [FileList] 段，返回 (相对文件名, FileType)。
         /// 这是 RTSys 项目的权威文件清单；没有 .zpj 时返回空列表。
         /// </summary>

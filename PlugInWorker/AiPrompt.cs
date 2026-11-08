@@ -338,6 +338,16 @@ Keep the conclusion under ~2000 tokens. Quote exact syntax verbatim from docs �
                 if (!string.IsNullOrEmpty(projectDir))
                     sb.AppendLine("- Project Directory: " + projectDir);
 
+                // 当前编辑器激活的文档：让 AI 把“当前文件 / 这个程序”直接定位到它，
+                // review/分析时优先聚焦该文件，而不是在整个工程里猜。
+                var activeFile = ProgramWorkspace.CurrentEditorFile;
+                if (!string.IsNullOrEmpty(activeFile))
+                {
+                    var activePath = ProgramWorkspace.CurrentEditorPath;
+                    sb.AppendLine("- Active Editor File: " + (activePath ?? activeFile)
+                        + " (currently shown in the RTSys editor; \"this file\" / \"当前文件\" refers to this program)");
+                }
+
                 // 仅在已有活动连接时查询详细状态。
                 // GetStatus 在“已配置 IP 但未连接”时会走完整连接链
                 // （ZMC_SearchAndOpenEth / ZMC_SearchEth / ZMC_OpenEth），这些同步调用无超时，
