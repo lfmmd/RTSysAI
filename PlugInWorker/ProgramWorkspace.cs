@@ -45,10 +45,14 @@ namespace RTSys.PlugIn
             {
                 lock (_projectLock)
                 {
+                    // 缓存 1 秒：宿主切换 .zpj 后应尽快反映新工程，1 秒的探测开销可忽略。
                     if (_projectDirProbeUtc != DateTime.MinValue &&
-                        (DateTime.UtcNow - _projectDirProbeUtc).TotalSeconds < 5)
+                        (DateTime.UtcNow - _projectDirProbeUtc).TotalSeconds < 1)
                         return _projectDir;
-                    _projectDir = DetectProjectDir();
+                    var detected = DetectProjectDir();
+                    if (!string.Equals(detected, _projectDir, StringComparison.OrdinalIgnoreCase))
+                        PlugInLog.Log("ProjectDir: " + (_projectDir ?? "(none)") + " -> " + (detected ?? "(none)"));
+                    _projectDir = detected;
                     _projectDirProbeUtc = DateTime.UtcNow;
                     return _projectDir;
                 }
@@ -62,7 +66,25 @@ namespace RTSys.PlugIn
 
         private static string DetectProjectDir()
         {
-            // 1) 显式配置优先：config.json 的 projectDir
+            // 1) 从宿主主窗口标题解析（同进程可直接读取）。
+            //    标题反映“当前实际打开的工程”，必须优先：config.json 的 projectDir 是静态值，
+            //    用户切换 .zpj 后不会自动变化，若让它优先会导致 AI 一直使用旧工程目录。
+            try
+            {
+                var title = System.Diagnostics.Process.GetCurrentProcess().MainWindowTitle;
+                if (!string.IsNullOrEmpty(title))
+                {
+                    foreach (var seg in title.Split(new[] { " - " }, StringSplitOptions.None))
+                    {
+                        var t = seg.Trim().Trim('"').TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        if (t.Length >= 3 && t[1] == ':' && Directory.Exists(t))
+                            return t;
+                    }
+                }
+            }
+            catch { }
+
+            // 2) 兜底：独立 worker 进程（无宿主窗口标题）时使用 config.json 的 projectDir。
             try
             {
                 var cfgPath = Path.Combine(AiService.DataDir, "config.json");
@@ -75,22 +97,6 @@ namespace RTSys.PlugIn
                         var dir = val?.ToString();
                         if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
                             return dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    }
-                }
-            }
-            catch { }
-
-            // 2) 从宿主主窗口标题解析（同进程可直接读取）
-            try
-            {
-                var title = System.Diagnostics.Process.GetCurrentProcess().MainWindowTitle;
-                if (!string.IsNullOrEmpty(title))
-                {
-                    foreach (var seg in title.Split(new[] { " - " }, StringSplitOptions.None))
-                    {
-                        var t = seg.Trim().Trim('"').TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                        if (t.Length >= 3 && t[1] == ':' && Directory.Exists(t))
-                            return t;
                     }
                 }
             }

@@ -1432,17 +1432,12 @@ namespace RTSys.PlugIn
             return null;
         }
 
-        /// <summary>当前项目目录下的 .zpj 文件（取最近修改的一个）；找不到返回 null。</summary>
+        /// <summary>当前打开项目的 .zpj 文件；优先取宿主标题里的文件名，找不到返回 null。</summary>
         private static string GetProjectZpjFile()
         {
-            var dir = ProgramWorkspace.ProjectDir;
-            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
-            try
-            {
-                var files = Directory.GetFiles(dir, "*.zpj");
-                return files.Length == 0 ? null : files.OrderByDescending(File.GetLastWriteTimeUtc).First();
-            }
-            catch { return null; }
+            // 直接复用 ProgramWorkspace 的定位逻辑：优先宿主标题中的 .zpj 名，
+            // 避免同一目录存在多个 .zpj 时取到“最近修改”的旧工程文件。
+            return ProgramWorkspace.GetProjectFilePath();
         }
 
         /// <summary>当前打开项目的信息（目录、.zpj、程序文件清单）。</summary>
