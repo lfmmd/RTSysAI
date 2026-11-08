@@ -1,3 +1,7 @@
+﻿// ============================================================================
+// ZMotionExtensions.cs —— ZMotion 高级异步封装：提供类型安全、自动编码转换、异步包装的 API
+// ============================================================================
+
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -16,6 +20,8 @@ namespace RTSys.PlugIn
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
         public struct SysSpecification
         {
+            // 该 DLL 只保证返回一个 dword；其余字段在该版本上未经二进制验证，保持为 0。
+            public int RawValue;
             public byte axisCount;           // 轴数
             public byte ioInCount;           // 输入点数
             public byte ioOutCount;          // 输出点数
@@ -67,13 +73,22 @@ namespace RTSys.PlugIn
         /// </summary>
         public static async Task<SysSpecification> GetSysSpecificationAsync(this ZMotionHandle handle)
         {
-            int size = Marshal.SizeOf<SysSpecification>();
-            IntPtr ptr = Marshal.AllocHGlobal(size);
+            // DLL 内部会按 struct_SysMaxSpecification 复制最多 0x44 字节。这里按该大小分配并清零，
+            // 只读取第一个 dword；其余字段在该版本上不可信，不做结构体解析。
+            const int specBufferSize = 0x44;
+            IntPtr ptr = Marshal.AllocHGlobal(specBufferSize);
             try
             {
+                for (int i = 0; i < specBufferSize; i += 4)
+                    Marshal.WriteInt32(ptr, i, 0);
+
                 int result = await Task.Run(() => ZMotionAPI.ZMC_GetSysSpecification(handle.DangerousGetHandle(), ptr));
                 ZMotionErrors.ThrowIfError(result, "GetSysSpecification");
-                return Marshal.PtrToStructure<SysSpecification>(ptr);
+                return new SysSpecification
+                {
+                    RawValue = Marshal.ReadInt32(ptr),
+                    reserved = new byte[16]
+                };
             }
             finally
             {
@@ -86,13 +101,30 @@ namespace RTSys.PlugIn
         /// </summary>
         public static async Task<(float version, string build, int buildNo)> GetSoftVersionAsync(this ZMotionHandle handle)
         {
-            StringBuilder build = new StringBuilder(64);
-            float version = 0;
-            int buildNo = 0;
-            int result = await Task.Run(() => ZMotionAPI.ZMC_GetSoftVersion(
-                handle.DangerousGetHandle(), out version, build, out buildNo));
-            ZMotionErrors.ThrowIfError(result, "GetSoftVersion");
-            return (version, build.ToString(), buildNo);
+            // 该导出没有长度参数：用显式大小的原生缓冲区（256 宽字符）并清零，
+            // 避免 StringBuilder 自动容量与原生写入不一致导致的越界风险。
+            const int buildChars = 256;
+            IntPtr buffer = Marshal.AllocHGlobal(buildChars * 2);
+            try
+            {
+                for (int i = 0; i < buildChars * 2; i += 2) Marshal.WriteInt16(buffer, i, 0);
+                float version = 0;
+                int buildNo = 0;
+                int result = await Task.Run(() =>
+                {
+                    float v;
+                    int n;
+                    int r = ZMotionAPI.ZMC_GetSoftVersion(handle.DangerousGetHandle(), out v, buffer, out n);
+                    version = v; buildNo = n;
+                    return r;
+                });
+                ZMotionErrors.ThrowIfError(result, "GetSoftVersion");
+                return (version, Marshal.PtrToStringUni(buffer) ?? "", buildNo);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
         }
 
         /// <summary>
@@ -100,7 +132,7 @@ namespace RTSys.PlugIn
         /// </summary>
         public static async Task<int> GetStateAsync(this ZMotionHandle handle)
         {
-            int state = 0;
+            byte state = 0;
             int result = await Task.Run(() => ZMotionAPI.ZMC_GetState(handle.DangerousGetHandle(), out state));
             ZMotionErrors.ThrowIfError(result, "GetState");
             return state;
@@ -111,7 +143,10 @@ namespace RTSys.PlugIn
         /// </summary>
         public static async Task<int> GetLastErrorAsync(this ZMotionHandle handle)
         {
-            return await Task.Run(() => ZMotionAPI.ZMC_GetError(handle.DangerousGetHandle()));
+            int error = 0;
+            int result = await Task.Run(() => ZMotionAPI.ZMC_GetError(handle.DangerousGetHandle(), out error));
+            ZMotionErrors.ThrowIfError(result, "GetError");
+            return error;
         }
 
         // ========== 程序编译下载 ==========
@@ -133,8 +168,8 @@ namespace RTSys.PlugIn
                 byte[] gbBytes = ZMotionAPI.Gb2312.GetBytes(sourceCode);
                 await Task.Run(() => System.IO.File.WriteAllBytes(srcFile, gbBytes));
 
-                // 2. 编译生成 ZAR
-                int result = await Task.Run(() => ZMotionAPI.ZMC_MakeZar(handle.DangerousGetHandle(), srcFile, 0));
+                // 2. 编译生成 ZAR（MakeZar 不接收 handle：source, output, pass, uid）
+                int result = await Task.Run(() => ZMotionAPI.ZMC_MakeZar(srcFile, zarFile, "", 0));
                 if (result != ZMotionErrors.SUCCESS)
                 {
                     string errDesc = ZMotionErrors.GetDescription(result);
@@ -181,7 +216,6 @@ namespace RTSys.PlugIn
             this ZMotionHandle handle, string sourceCode, string programName)
         {
             // 使用 ZMC_DownMemZar - 需要先 MakeZar 生成内存缓冲区
-            // 这里简化：先生成临时 ZAR 再读入内存
             string tempDir = System.IO.Path.GetTempPath();
             string srcFile = System.IO.Path.Combine(tempDir, $"{programName}_{Guid.NewGuid():N}.src");
             string zarFile = System.IO.Path.ChangeExtension(srcFile, ".zar");
@@ -191,7 +225,7 @@ namespace RTSys.PlugIn
                 byte[] gbBytes = ZMotionAPI.Gb2312.GetBytes(sourceCode);
                 await Task.Run(() => System.IO.File.WriteAllBytes(srcFile, gbBytes));
 
-                int result = await Task.Run(() => ZMotionAPI.ZMC_MakeZar(handle.DangerousGetHandle(), srcFile, 0));
+                int result = await Task.Run(() => ZMotionAPI.ZMC_MakeZar(srcFile, zarFile, "", 0));
                 if (result != ZMotionErrors.SUCCESS)
                 {
                     return (false, $"编译失败: {ZMotionErrors.GetDescription(result)}");
@@ -358,39 +392,23 @@ namespace RTSys.PlugIn
         /// <summary>
         /// 读取寄存器 (原始字节)
         /// </summary>
-        public static async Task<byte[]> RegisterReadAsync(this ZMotionHandle handle, int regType, int address, int count)
+        // 原生 ZMC_RegisterRead/Write 的第二参是寄存器名字符串（如 "VR"/"TABLE"），
+        // 而现有调用方传入的是 int regType，映射关系未经确认。按 fail-safe 原则拒绝调用。
+        public static Task<byte[]> RegisterReadAsync(this ZMotionHandle handle, int regType, int address, int count)
         {
-            byte[] buffer = new byte[count];
-            GCHandle handleGC = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-            try
-            {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_RegisterRead(
-                    handle.DangerousGetHandle(), regType, 1, address, (ushort)count, handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, $"RegisterRead[{address}:{count}]");
-                return buffer;
-            }
-            finally
-            {
-                handleGC.Free();
-            }
+            return Task.FromException<byte[]>(new ZMotionException(
+                ZMotionErrors.ERR_NOT_SUPPORTED,
+                "register access is not available: native register name mapping is unverified"));
         }
 
         /// <summary>
         /// 写入寄存器
         /// </summary>
-        public static async Task RegisterWriteAsync(this ZMotionHandle handle, int regType, int address, byte[] data)
+        public static Task RegisterWriteAsync(this ZMotionHandle handle, int regType, int address, byte[] data)
         {
-            GCHandle handleGC = GCHandle.Alloc(data, GCHandleType.Pinned);
-            try
-            {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_RegisterWrite(
-                    handle.DangerousGetHandle(), regType, 1, address, (ushort)data.Length, handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, $"RegisterWrite[{address}:{data.Length}]");
-            }
-            finally
-            {
-                handleGC.Free();
-            }
+            return Task.FromException(new ZMotionException(
+                ZMotionErrors.ERR_NOT_SUPPORTED,
+                "register access is not available: native register name mapping is unverified"));
         }
 
         // ========== IO 读写 ==========
@@ -416,23 +434,27 @@ namespace RTSys.PlugIn
         }
 
         /// <summary>
+        /// 读取单个数字输出
+        /// </summary>
+        public static async Task<bool> GetOutputAsync(this ZMotionHandle handle, short bit)
+        {
+            byte resultByte = 0;
+            int result = await Task.Run(() => ZMotionAPI.ZMC_GetOutput(handle.DangerousGetHandle(), bit, out resultByte));
+            ZMotionErrors.ThrowIfError(result, $"GetOutput {bit}");
+            return resultByte != 0;
+        }
+
+        /// <summary>
         /// 批量读取所有数字输入 (返回位数组，每字节8个点)
         /// </summary>
         public static async Task<byte[]> GetInAllAsync(this ZMotionHandle handle)
         {
-            // 需要先获取规格知 IO 点数，这里按最大 256 字节 (2048 点) 分配
-            byte[] buffer = new byte[256];
-            GCHandle handleGC = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-            try
-            {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_GetInAll(handle.DangerousGetHandle(), handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, "GetInAll");
-                return buffer;
-            }
-            finally
-            {
-                handleGC.Free();
-            }
+            // 原生 API 一次返回 0..31 共 32 个点的位图（单个 uint32），不是 256 字节缓冲区。
+            uint state = 0;
+            int result = await Task.Run(() => ZMotionAPI.ZMC_GetInAll(
+                handle.DangerousGetHandle(), 0, 31, out state));
+            ZMotionErrors.ThrowIfError(result, "GetInAll");
+            return BitConverter.GetBytes(state);
         }
 
         /// <summary>
@@ -440,18 +462,11 @@ namespace RTSys.PlugIn
         /// </summary>
         public static async Task<byte[]> GetOutAllAsync(this ZMotionHandle handle)
         {
-            byte[] buffer = new byte[256];
-            GCHandle handleGC = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-            try
-            {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_GetOutAll(handle.DangerousGetHandle(), handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, "GetOutAll");
-                return buffer;
-            }
-            finally
-            {
-                handleGC.Free();
-            }
+            uint state = 0;
+            int result = await Task.Run(() => ZMotionAPI.ZMC_GetOutAll(
+                handle.DangerousGetHandle(), 0, 31, out state));
+            ZMotionErrors.ThrowIfError(result, "GetOutAll");
+            return BitConverter.GetBytes(state);
         }
 
         /// <summary>
@@ -459,16 +474,19 @@ namespace RTSys.PlugIn
         /// </summary>
         public static async Task SetOutAllAsync(this ZMotionHandle handle, byte[] data)
         {
-            GCHandle handleGC = GCHandle.Alloc(data, GCHandleType.Pinned);
-            try
-            {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_SetOutAll(handle.DangerousGetHandle(), handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, "SetOutAll");
-            }
-            finally
-            {
-                handleGC.Free();
-            }
+            // 原生 API 只能写入一个 uint32（0..31 点）；超出部分无法表达，明确拒绝而不是越界写入。
+            if (data == null || data.Length == 0 || data.Length > 4)
+                throw new ZMotionException(
+                    ZMotionErrors.ERR_PARAM_INVALID,
+                    "SetOutAll supports at most 32 outputs (4 bytes) on this zmotion.dll API");
+
+            uint state = 0;
+            for (int i = 0; i < data.Length; i++)
+                state |= (uint)data[i] << (i * 8);
+
+            int result = await Task.Run(() => ZMotionAPI.ZMC_SetOutAll(
+                handle.DangerousGetHandle(), 0, 31, state));
+            ZMotionErrors.ThrowIfError(result, "SetOutAll");
         }
 
         /// <summary>
@@ -479,6 +497,17 @@ namespace RTSys.PlugIn
             float value = 0;
             int result = await Task.Run(() => ZMotionAPI.ZMC_GetAIn(handle.DangerousGetHandle(), channel, out value));
             ZMotionErrors.ThrowIfError(result, $"GetAIn {channel}");
+            return value;
+        }
+
+        /// <summary>
+        /// 读取模拟输出
+        /// </summary>
+        public static async Task<float> GetDaOutAsync(this ZMotionHandle handle, short channel)
+        {
+            float value = 0;
+            int result = await Task.Run(() => ZMotionAPI.ZMC_GetDaOut(handle.DangerousGetHandle(), channel, out value));
+            ZMotionErrors.ThrowIfError(result, $"GetDaOut {channel}");
             return value;
         }
 
@@ -494,44 +523,38 @@ namespace RTSys.PlugIn
         // ========== 轴状态 ==========
 
         /// <summary>
-        /// 获取轴数量
+        /// 获取轴数量。ZMC_GetAxises 的真实签名已由反汇编确认（handle → uint8，ret 4），
+        /// 直接读取宿主控制器句柄内的轴数（模拟器/控制器未初始化时可能返回 0）。
         /// </summary>
         public static byte GetAxisCount(this ZMotionHandle handle)
         {
-            return ZMotionAPI.ZMC_GetAxises(handle.DangerousGetHandle());
+            try
+            {
+                return ZMotionAPI.ZMC_GetAxises(handle.DangerousGetHandle());
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         /// <summary>
-        /// 获取单轴完整状态 (17 字节结构)
+        /// 获取单轴完整状态。
+        /// ZMC_GetAxisStates 需要 (handle, axis, 输出缓冲区) 三个参数；在无法确认
+        /// 控制器/模拟器支持该导出之前，直接返回受控异常，绝不触发 AccessViolation。
         /// </summary>
-        public static async Task<AxisState> GetAxisStateAsync(this ZMotionHandle handle, byte axis)
+        public static Task<AxisState> GetAxisStateAsync(this ZMotionHandle handle, byte axis)
         {
-            int size = Marshal.SizeOf<AxisState>();
-            IntPtr ptr = Marshal.AllocHGlobal(size);
-            try
-            {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_GetAxisStates(handle.DangerousGetHandle(), axis, ptr));
-                ZMotionErrors.ThrowIfError(result, $"GetAxisState {axis}");
-                return Marshal.PtrToStructure<AxisState>(ptr);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(ptr);
-            }
+            return Task.FromException<AxisState>(new ZMotionException(
+                -1, "axis state not available on this connection"));
         }
 
         /// <summary>
         /// 获取所有轴状态
         /// </summary>
-        public static async Task<AxisState[]> GetAllAxisStatesAsync(this ZMotionHandle handle)
+        public static Task<AxisState[]> GetAllAxisStatesAsync(this ZMotionHandle handle)
         {
-            byte count = handle.GetAxisCount();
-            var states = new AxisState[count];
-            for (byte i = 0; i < count; i++)
-            {
-                states[i] = await handle.GetAxisStateAsync(i);
-            }
-            return states;
+            return Task.FromResult(Array.Empty<AxisState>());
         }
 
         /// <summary>
@@ -577,14 +600,26 @@ namespace RTSys.PlugIn
 
         // ========== Modbus ==========
 
+        // 该 zmotion.dll 的 Modbus 导出签名是 (handle, start, count, data*)，
+        // 没有 slave 参数。slave=0 时按控制器本地地址访问；其它值无法表达，明确拒绝。
+        private static void EnsureLocalModbusSlave(int slave)
+        {
+            if (slave != 0)
+                throw new ZMotionException(
+                    ZMotionErrors.ERR_NOT_SUPPORTED,
+                    "Modbus slave addressing is not supported by this zmotion.dll API (slave must be 0)");
+        }
+
         public static async Task<byte[]> ModbusReadCoilsAsync(this ZMotionHandle handle, int slave, int address, int count)
         {
+            EnsureLocalModbusSlave(slave);
             byte[] buffer = new byte[(count + 7) / 8];
             GCHandle handleGC = GCHandle.Alloc(buffer, GCHandleType.Pinned);
             try
             {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_Modbus_Get0x(handle.DangerousGetHandle(), slave, address, count, handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, $"ModbusReadCoils {slave}:{address}:{count}");
+                uint result = await Task.Run(() => ZMotionAPI.ZMC_Modbus_Get0x(
+                    handle.DangerousGetHandle(), (ushort)address, (ushort)count, handleGC.AddrOfPinnedObject()));
+                ZMotionErrors.ThrowIfError((int)result, $"ModbusReadCoils {slave}:{address}:{count}");
                 return buffer;
             }
             finally { handleGC.Free(); }
@@ -592,23 +627,27 @@ namespace RTSys.PlugIn
 
         public static async Task ModbusWriteCoilsAsync(this ZMotionHandle handle, int slave, int address, byte[] data)
         {
+            EnsureLocalModbusSlave(slave);
             GCHandle handleGC = GCHandle.Alloc(data, GCHandleType.Pinned);
             try
             {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_Modbus_Set0x(handle.DangerousGetHandle(), slave, address, data.Length * 8, handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, $"ModbusWriteCoils {slave}:{address}");
+                uint result = await Task.Run(() => ZMotionAPI.ZMC_Modbus_Set0x(
+                    handle.DangerousGetHandle(), (ushort)address, (ushort)(data.Length * 8), handleGC.AddrOfPinnedObject()));
+                ZMotionErrors.ThrowIfError((int)result, $"ModbusWriteCoils {slave}:{address}");
             }
             finally { handleGC.Free(); }
         }
 
         public static async Task<ushort[]> ModbusReadRegistersAsync(this ZMotionHandle handle, int slave, int address, int count)
         {
+            EnsureLocalModbusSlave(slave);
             ushort[] buffer = new ushort[count];
             GCHandle handleGC = GCHandle.Alloc(buffer, GCHandleType.Pinned);
             try
             {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_Modbus_Get4x(handle.DangerousGetHandle(), slave, address, count, handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, $"ModbusReadRegisters {slave}:{address}:{count}");
+                uint result = await Task.Run(() => ZMotionAPI.ZMC_Modbus_Get4x(
+                    handle.DangerousGetHandle(), (ushort)address, (ushort)count, handleGC.AddrOfPinnedObject()));
+                ZMotionErrors.ThrowIfError((int)result, $"ModbusReadRegisters {slave}:{address}:{count}");
                 return buffer;
             }
             finally { handleGC.Free(); }
@@ -616,34 +655,34 @@ namespace RTSys.PlugIn
 
         public static async Task ModbusWriteRegistersAsync(this ZMotionHandle handle, int slave, int address, ushort[] data)
         {
+            EnsureLocalModbusSlave(slave);
             GCHandle handleGC = GCHandle.Alloc(data, GCHandleType.Pinned);
             try
             {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_Modbus_Set4x(handle.DangerousGetHandle(), slave, address, data.Length, handleGC.AddrOfPinnedObject()));
-                ZMotionErrors.ThrowIfError(result, $"ModbusWriteRegisters {slave}:{address}");
+                uint result = await Task.Run(() => ZMotionAPI.ZMC_Modbus_Set4x(
+                    handle.DangerousGetHandle(), (ushort)address, (ushort)data.Length, handleGC.AddrOfPinnedObject()));
+                ZMotionErrors.ThrowIfError((int)result, $"ModbusWriteRegisters {slave}:{address}");
             }
             finally { handleGC.Free(); }
         }
 
         // ========== EtherCAT SDO ==========
 
-        public static async Task<int> EcatSdoReadAsync(this ZMotionHandle handle, short slot, short position, int index, int subIndex, int dataType)
+        // 反汇编显示 ZMC_EcatSdo_Send/Recv 的真实参数个数分别为 5/6，且参数语义
+        // （数据长度 + 数据指针）与 index/subIndex/dataType 不符。与高层 SDO 读写
+        // 的映射无法确认，按 fail-safe 原则拒绝调用，避免错误 ABI 造成堆损坏。
+        public static Task<int> EcatSdoReadAsync(this ZMotionHandle handle, short slot, short position, int index, int subIndex, int dataType)
         {
-            IntPtr valuePtr = Marshal.AllocHGlobal(4);
-            try
-            {
-                int result = await Task.Run(() => ZMotionAPI.ZMC_EcatSdo_Recv(handle.DangerousGetHandle(), slot, position, index, subIndex, dataType, valuePtr));
-                ZMotionErrors.ThrowIfError(result, $"EcatSdoRead {slot}:{position}:0x{index:X}:{subIndex}");
-                return Marshal.ReadInt32(valuePtr);
-            }
-            finally { Marshal.FreeHGlobal(valuePtr); }
+            return Task.FromException<int>(new ZMotionException(
+                ZMotionErrors.ERR_NOT_SUPPORTED,
+                "EtherCAT SDO read is not available: native signature/semantics unverified"));
         }
 
-        public static async Task EcatSdoWriteAsync(this ZMotionHandle handle, short slot, short position, int index, int subIndex, int dataType, int value)
+        public static Task EcatSdoWriteAsync(this ZMotionHandle handle, short slot, short position, int index, int subIndex, int dataType, int value)
         {
-            // ZMC_EcatSdo_Send 发送写请求，实际写入需配合
-            int result = await Task.Run(() => ZMotionAPI.ZMC_EcatSdo_Send(handle.DangerousGetHandle(), slot, position, index, subIndex, dataType));
-            ZMotionErrors.ThrowIfError(result, $"EcatSdoWrite {slot}:{position}:0x{index:X}:{subIndex}");
+            return Task.FromException(new ZMotionException(
+                ZMotionErrors.ERR_NOT_SUPPORTED,
+                "EtherCAT SDO write is not available: native signature/semantics unverified"));
         }
 
         // ========== 固件/系统 ==========
@@ -665,32 +704,39 @@ namespace RTSys.PlugIn
         public static async Task<List<string>> ListProgramsAsync(this ZMotionHandle handle)
         {
             var programs = new List<string>();
-            StringBuilder name = new StringBuilder(260);
+            var name = new StringBuilder(1024);
+            int size = 0;
 
-            int result = await Task.Run(() => ZMotionAPI.ZMC_FindFirst3File(handle.DangerousGetHandle(), name, name.Capacity));
-            if (result == ZMotionErrors.SUCCESS)
+            int result = await Task.Run(() => ZMotionAPI.ZMC_FindFirst3File(handle.DangerousGetHandle(), name, out size));
+            if (result != ZMotionErrors.SUCCESS)
             {
-                programs.Add(name.ToString());
-                while (true)
-                {
-                    name.Clear();
-                    result = await Task.Run(() => ZMotionAPI.ZMC_FindNext3File(handle.DangerousGetHandle(), name, name.Capacity));
-                    if (result != ZMotionErrors.SUCCESS) break;
-                    programs.Add(name.ToString());
-                }
+                // 明确区分“读取失败”和“没有程序”——不再静默返回空列表。
+                throw new ZMotionException(result, $"ListPrograms(FindFirst): {ZMotionErrors.GetDescription(result)}");
+            }
+
+            // 成功但文件名为空 = 控制器上没有程序（模拟器空机的正常情况）。
+            if (string.IsNullOrEmpty(name.ToString())) return programs;
+            programs.Add(name.ToString());
+
+            while (true)
+            {
+                var next = new StringBuilder(1024);
+                int nr = await Task.Run(() => ZMotionAPI.ZMC_FindNext3File(handle.DangerousGetHandle(), next, out size));
+                if (nr != ZMotionErrors.SUCCESS) break; // 枚举结束
+                var nm = next.ToString();
+                if (string.IsNullOrEmpty(nm)) break;
+                programs.Add(nm);
             }
             return programs;
         }
 
-        public static async Task<string> ReadProgramAsync(this ZMotionHandle handle, string programName)
+        // ZMC_Up3File 的真实参数个数为 3，且没有缓冲区长度参数，无法安全确定写入边界。
+        // 在确认其语义之前拒绝调用，避免原生代码越界写入托管缓冲区。
+        public static Task<string> ReadProgramAsync(this ZMotionHandle handle, string programName)
         {
-            StringBuilder buffer = new StringBuilder(1024 * 100); // 100KB 缓冲
-            int result = await Task.Run(() => ZMotionAPI.ZMC_Up3File(handle.DangerousGetHandle(), programName, buffer, buffer.Capacity));
-            if (result != ZMotionErrors.SUCCESS)
-            {
-                throw new ZMotionException(result, $"ReadProgram {programName}: {ZMotionErrors.GetDescription(result)}");
-            }
-            return buffer.ToString();
+            return Task.FromException<string>(new ZMotionException(
+                ZMotionErrors.ERR_NOT_SUPPORTED,
+                "program upload is not available: ZMC_Up3File ABI/semantics unverified"));
         }
 
         public static async Task DeleteProgramAsync(this ZMotionHandle handle, string programName)
@@ -720,6 +766,7 @@ namespace RTSys.PlugIn
                 AxisStates = axisStates,
                 Specification = new
                 {
+                    RawValue = spec.RawValue,
                     AxisCount = spec.axisCount,
                     IOInCount = spec.ioInCount,
                     IOOutCount = spec.ioOutCount,
@@ -734,6 +781,25 @@ namespace RTSys.PlugIn
                 },
                 Programs = await handle.ListProgramsAsync()
             };
+        }
+
+        /// <summary>
+        /// 设置默认超时（5秒），用于新建立的连接句柄
+        /// </summary>
+        public static async Task SetDefaultTimeoutAsync(this ZMotionHandle handle)
+        {
+            try
+            {
+                int result = await Task.Run(() => ZMotionAPI.ZMC_SetTimeOut(handle.DangerousGetHandle(), 5000));
+                if (result != ZMotionErrors.SUCCESS)
+                {
+                    PlugInLog.Log("设置默认超时失败: " + ZMotionErrors.GetDescription(result));
+                }
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("SetDefaultTimeoutAsync", ex);
+            }
         }
     }
 }

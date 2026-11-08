@@ -17,3 +17,12 @@ deploy/PlugInNative/*.exe
 
 # 日志
 *.log
+
+# 本地工具与备份
+.zcode/
+.claude/
+*.bak
+tools/*.lnk
+
+# 由 tools/build_rtbasic_skills.py 从本机 RTSys 帮助生成，不入库
+PlugInWorker/skills/rtbasic/zh/

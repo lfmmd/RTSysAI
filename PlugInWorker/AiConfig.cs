@@ -7,6 +7,10 @@ namespace RTSys.PlugIn
 {
     internal partial class AiService
     {
+        // ---- 默认值（唯一来源，供 ChatPanel 与请求规范化共用）----
+        internal const string DefaultApiUrl = "https://api.deepseek.com/anthropic";
+        internal const string DefaultModel = "claude-sonnet-4-20250514";
+
         // ---- Config-related instance fields ----
 
         private string _apiKey;
@@ -24,6 +28,18 @@ namespace RTSys.PlugIn
         private static bool _localizeThinking = true;
         private static bool _useChineseDocs = false;   // skill 文档语言：false=英文（默认），true=中文
         private string _dialectMode = "auto";   // 提示词方言：auto(按项目主导方言推断)/rtbasic
+        private static string _basEncoding = "auto"; // .bas 输出编码：auto(保持原编码，新文件 ANSI)/ansi/utf8
+
+        // 本类不管理的配置键（RTSysIP / projectDir / enableHttpApi 等）：
+        // 加载时缓存到内存，保存时原样写回，避免设置保存把用户配置整份覆盖掉。
+        private static readonly HashSet<string> ManagedConfigKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "apiKey", "model", "lightModel", "apiUrl", "showToolStatus", "skillsInitialized",
+            "includeSkillImages", "enableControllerValidation", "enableThinking", "budgetTokens",
+            "showThinking", "memoryEnabled", "localizeThinking", "useChineseDocs", "dialectMode", "basEncoding"
+        };
+        private readonly Dictionary<string, object> _extraConfig =
+            new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 
         // ---- Config ----
 
@@ -96,12 +112,26 @@ namespace RTSys.PlugIn
                         if (s == "auto" || s == "rtbasic") _dialectMode = s;
                         else _dialectMode = "rtbasic"; // 兼容旧配置（triobasic/iec），统一回落到 rtbasic
                     }
+                    if (cfg.TryGetValue("basEncoding", out val))
+                    {
+                        var s = val?.ToString();
+                        if (s == "ansi" || s == "utf8") _basEncoding = s;
+                        else _basEncoding = "auto";
+                    }
+
+                    // 缓存本类不管理的键，保存时写回。
+                    _extraConfig.Clear();
+                    foreach (var kv in cfg)
+                    {
+                        if (!ManagedConfigKeys.Contains(kv.Key))
+                            _extraConfig[kv.Key] = kv.Value;
+                    }
                 }
             }
             catch { }
         }
 
-        public void SaveConfig(string apiKey, string model, string apiUrl, bool? showToolStatus = null, bool? includeSkillImages = null, bool? enableControllerValidation = null, bool? enableThinking = null, int? budgetTokens = null, bool? showThinking = null, bool? memoryEnabled = null, bool? localizeThinking = null, bool? useChineseDocs = null, string lightModel = null, string dialectMode = null)
+        public void SaveConfig(string apiKey, string model, string apiUrl, bool? showToolStatus = null, bool? includeSkillImages = null, bool? enableControllerValidation = null, bool? enableThinking = null, int? budgetTokens = null, bool? showThinking = null, bool? memoryEnabled = null, bool? localizeThinking = null, bool? useChineseDocs = null, string lightModel = null, string dialectMode = null, string basEncoding = null)
         {
             _apiKey = apiKey;
             if (!string.IsNullOrEmpty(model)) _model = model;
@@ -130,28 +160,39 @@ namespace RTSys.PlugIn
                 _dialectMode = dialectMode;
             else if (dialectMode != null)
                 _dialectMode = "rtbasic"; // 兼容旧值
-            var json = _json.Serialize(new { apiKey = _apiKey, model = _model, lightModel = _lightModel ?? "", apiUrl = _apiUrl, showToolStatus = _showToolStatus, skillsInitialized = _skillsInitialized, includeSkillImages = _includeSkillImages, enableControllerValidation = _enableControllerValidation, enableThinking = _enableThinking, budgetTokens = _budgetTokens, showThinking = _showThinking, memoryEnabled = _memoryEnabled, localizeThinking = _localizeThinking, useChineseDocs = _useChineseDocs, dialectMode = _dialectMode });
-            // 保留配置文件中的"未知键"（例如 RTSysIP、用户自定义项）：
-            // 本方法只重写自己管理的字段，其余键原样合并回去，避免整份覆盖丢失配置。
+            if (basEncoding != null)
+            {
+                if (basEncoding == "ansi" || basEncoding == "utf8") _basEncoding = basEncoding;
+                else _basEncoding = "auto";
+            }
+            var json = _json.Serialize(new { apiKey = _apiKey, model = _model, lightModel = _lightModel ?? "", apiUrl = _apiUrl, showToolStatus = _showToolStatus, skillsInitialized = _skillsInitialized, includeSkillImages = _includeSkillImages, enableControllerValidation = _enableControllerValidation, enableThinking = _enableThinking, budgetTokens = _budgetTokens, showThinking = _showThinking, memoryEnabled = _memoryEnabled, localizeThinking = _localizeThinking, useChineseDocs = _useChineseDocs, dialectMode = _dialectMode, basEncoding = _basEncoding });
+
+            // 保留"未知键"（RTSysIP / projectDir / enableHttpApi / 用户自定义项）：
+            // 1) 先写回本进程加载时缓存的未知键（即使配置文件此刻不可读也不丢）；
+            // 2) 再合并当前文件中的未知键（其它进程可能新增）。
+            var merged = _json.Deserialize<Dictionary<string, object>>(json)
+                         ?? new Dictionary<string, object>();
+            foreach (var kv in _extraConfig)
+            {
+                if (!merged.ContainsKey(kv.Key)) merged[kv.Key] = kv.Value;
+            }
             try
             {
                 if (File.Exists(ConfigPath))
                 {
                     var existing = _json.Deserialize<Dictionary<string, object>>(File.ReadAllText(ConfigPath));
-                    var merged = _json.Deserialize<Dictionary<string, object>>(json);
-                    if (existing != null && merged != null)
+                    if (existing != null)
                     {
                         foreach (var kv in existing)
                         {
-                            if (!merged.ContainsKey(kv.Key))
+                            if (!merged.ContainsKey(kv.Key) && !ManagedConfigKeys.Contains(kv.Key))
                                 merged[kv.Key] = kv.Value;
                         }
-                        json = _json.Serialize(merged);
                     }
                 }
             }
-            catch { /* 合并失败则退回覆盖写，不阻断保存 */ }
-            File.WriteAllText(ConfigPath, json);
+            catch { /* 当前文件解析失败时，仍保留 _extraConfig 中的未知键 */ }
+            File.WriteAllText(ConfigPath, _json.Serialize(merged));
         }
 
         // Auto-append /v1/messages if user typed only the base (e.g. https://api.deepseek.com/anthropic).
@@ -159,7 +200,7 @@ namespace RTSys.PlugIn
         private static string NormalizeApiUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
-                return "https://api.deepseek.com/anthropic/v1/messages";
+                return DefaultApiUrl + "/v1/messages";
             url = url.Trim();
             if (url.EndsWith("/v1/messages", StringComparison.OrdinalIgnoreCase))
                 return url;
@@ -186,10 +227,14 @@ namespace RTSys.PlugIn
         public bool SkillsInitialized => _skillsInitialized;
         public bool IncludeSkillImages => _includeSkillImages;
         public string DialectMode => _dialectMode;
+        public static string BasEncodingMode => _basEncoding;
         public static bool EnableControllerValidation => _enableControllerValidation;
 
-        public string InitializeSkills()
+        public string InitializeSkills(bool force = false)
         {
+            // 已初始化过就跳过，避免每次启动清空用户对 skills 目录的自定义修改。
+            if (_skillsInitialized && !force) return null;
+
             var dllDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
             var srcDir = Path.Combine(dllDir, "skills");
             if (!Directory.Exists(srcDir))
@@ -209,8 +254,10 @@ namespace RTSys.PlugIn
 
             _skillsInitialized = true;
             _index = null; // force reload
-            var json = _json.Serialize(new { apiKey = _apiKey ?? "", model = _model ?? "", lightModel = _lightModel ?? "", apiUrl = _apiUrl ?? "", showToolStatus = _showToolStatus, skillsInitialized = true, includeSkillImages = _includeSkillImages, enableControllerValidation = _enableControllerValidation, enableThinking = _enableThinking, budgetTokens = _budgetTokens, showThinking = _showThinking, memoryEnabled = _memoryEnabled, localizeThinking = _localizeThinking, useChineseDocs = _useChineseDocs, dialectMode = _dialectMode });
-            File.WriteAllText(ConfigPath, json);
+            // 复用 SaveConfig 的合并逻辑，保留 RTSysIP / projectDir / enableHttpApi 等未知键。
+            SaveConfig(_apiKey, _model, _apiUrl, _showToolStatus, _includeSkillImages,
+                _enableControllerValidation, _enableThinking, _budgetTokens, _showThinking,
+                _memoryEnabled, _localizeThinking, _useChineseDocs, _lightModel, _dialectMode);
             return null;
         }
 

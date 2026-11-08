@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -143,6 +143,10 @@ namespace RTSys.PlugIn.Tests
                 TestHmiFileParser();
                 Console.WriteLine();
 
+                Console.WriteLine("Test Group 14: lookup_command Tier 1/2 Output Focus (offline)");
+                TestLookupCommandOutput();
+                Console.WriteLine();
+
             }
             finally
             {
@@ -185,6 +189,63 @@ namespace RTSys.PlugIn.Tests
                 var validation = AiService.ValidateTrioBasicCodePublic("MOVE(1,2)");
                 var json = _json.Serialize(validation);
                 Assert(json.Contains("\"ok\":true"), "validate_basic 接受 MOVE(1,2)", json);
+
+                // 可选参数用尖括号表示（BASE(axis<,second axis>...)），不能把可选参数误判为必填
+                var baseVal = AiService.ValidateTrioBasicCodePublic("BASE(0)\r\nMOVEABS(0)\r\nEND");
+                var baseJson = _json.Serialize(baseVal);
+                Assert(baseJson.Contains("\"ok\":true"), "validate_basic 接受 BASE(0)", baseJson);
+
+                // write_source 的写入前校验必须与 validate_basic 同源：RTBasic 的 GLOBAL/SUB/DIM 没有 AS 类型，不能按 VB.NET 误报
+                var validRt = "GLOBAL gStatus\r\nGLOBAL CONST gAxis = 6\r\nDIM flag\r\nSUB ProcA\r\n  gStatus = 1\r\nEND SUB\r\nEND";
+                var writeErrs = AiService.ValidateTrioBasicCodeErrors(validRt);
+                Assert(writeErrs.Count == 0, "write_source 校验接受 RTBasic GLOBAL/SUB/DIM", string.Join("; ", writeErrs));
+
+                // 用户自定义 SUB 的声明与调用不能被当成未知命令（RTBasic 允许 SUB name(参数)）
+                var userSubCode = "SUB ProcA()\r\n  gStatus = 1\r\nEND SUB\r\nProcA()\r\nEND";
+                var userSubErrs = AiService.ValidateTrioBasicCodeErrors(userSubCode);
+                Assert(userSubErrs.Count == 0, "validate_basic 接受用户自定义 SUB", string.Join("; ", userSubErrs));
+                var multiSubCode = "GOSUB ProcA\r\nGOSUB ProcB\r\nEND\r\nSUB ProcA()\r\nEND SUB\r\nSUB ProcB()\r\nEND SUB";
+                var multiSubErrs = AiService.ValidateTrioBasicCodeErrors(multiSubCode);
+                Assert(multiSubErrs.Count == 0, "validate_basic 接受多个自定义 SUB", string.Join("; ", multiSubErrs));
+                var hallucinated = AiService.ValidateTrioBasicCodeErrors("FOOBAR(1)");
+                Assert(hallucinated.Count > 0, "validate_basic 仍拒绝未知命令");
+
+                // 编码检测：GBK / UTF-8 / UTF-8 BOM / 纯 ASCII
+                const string sample = "' 中文注释\nEND\n";
+                var gbkBytes = Encoding.GetEncoding(936).GetBytes(sample);
+                var utf8Bytes = new UTF8Encoding(false).GetBytes(sample);
+                var bomBytes = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(utf8Bytes).ToArray();
+                Assert(BasEncoding.Detect(gbkBytes) == BasEncodingKind.Ansi, "编码检测: GBK → ANSI");
+                Assert(BasEncoding.Detect(utf8Bytes) == BasEncodingKind.Utf8, "编码检测: UTF-8 → UTF8");
+                Assert(BasEncoding.Detect(bomBytes) == BasEncodingKind.Utf8Bom, "编码检测: UTF-8 BOM");
+                Assert(BasEncoding.Detect(Encoding.ASCII.GetBytes("END\n")) == BasEncodingKind.Ansi, "编码检测: 纯 ASCII 默认 ANSI");
+                Assert(BasEncoding.Decode(gbkBytes) == sample, "编码解码: GBK 往返");
+                Assert(BasEncoding.Decode(utf8Bytes) == sample, "编码解码: UTF-8 往返");
+
+                // 备份文件名解析 + 保留策略
+                var oldBackupDir = ProgramBackup.BackupDirectory;
+                var tempBackupDir = Path.Combine(Path.GetTempPath(), "rtsys_bak_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempBackupDir);
+                try
+                {
+                    ProgramBackup.BackupDirectory = tempBackupDir;
+                    var parsed = ProgramBackup.Parse(ProgramBackup.BuildFileName("TaskMain", "bas", "write"));
+                    Assert(parsed != null && parsed.Program == "TaskMain" && parsed.Kind == "bas" && parsed.Reason == "write",
+                        "备份文件名可解析");
+                    for (int i = 0; i < 12; i++)
+                    {
+                        System.Threading.Thread.Sleep(2);
+                        File.WriteAllBytes(Path.Combine(tempBackupDir, ProgramBackup.BuildFileName("P1", "bas", "write")), new byte[] { 1 });
+                    }
+                    ProgramBackup.Prune();
+                    var kept = Directory.GetFiles(tempBackupDir, "P1__*.bak").Length;
+                    Assert(kept <= 10, "备份保留策略每程序 ≤10", "kept=" + kept);
+                }
+                finally
+                {
+                    ProgramBackup.BackupDirectory = oldBackupDir;
+                    try { Directory.Delete(tempBackupDir, true); } catch { }
+                }
 
                 // Q12：手写 JSON 序列化必须与区域设置无关，且转义控制字符
                 var serializeRequest = typeof(AiService).GetMethod("SerializeRequest", BindingFlags.NonPublic | BindingFlags.Static);
@@ -325,6 +386,71 @@ namespace RTSys.PlugIn.Tests
             BitConverter.GetBytes((ushort)x).CopyTo(p, 8);
             BitConverter.GetBytes((ushort)y).CopyTo(p, 10);
             return p;
+        }
+
+        /// <summary>
+        /// lookup_command 前两层回归：
+        ///   - Layer 2 摘要对历史解析失败的指令仍必须给出非空 signature（中文前缀 / 全角括号 / 无括号写法）；
+        ///   - 摘要保持轻量：不含 HTML，JSON 长度受限；
+        ///   - Layer 1 catalog 的命令族类别优先，不再被“轴参数”类占满。
+        /// </summary>
+        private static void TestLookupCommandOutput()
+        {
+            // 这些命令在旧实现里签名解析失败（空签名），是本次修复的重点。
+            foreach (var cmd in new[] { "SPEED", "UNITS", "CONNECT", "WDOG", "ATYPE", "SERVO", "ACCEL", "DECEL" })
+            {
+                var json = _json.Serialize(AiService.LookupCommand(cmd, "false"));
+                var dict = _json.Deserialize<Dictionary<string, object>>(json);
+                Assert(dict != null && dict.ContainsKey("results"), "lookup_command(" + cmd + ") 返回 results", json);
+                if (dict == null || !dict.ContainsKey("results")) continue;
+
+                var results = dict["results"] as System.Collections.IList;
+                Assert(results != null && results.Count > 0, "lookup_command(" + cmd + ") 有结果", json);
+                if (results == null || results.Count == 0) continue;
+
+                var first = results[0] as Dictionary<string, object>;
+                var sig = first != null && first.ContainsKey("signature") ? first["signature"] as string : null;
+                Assert(!string.IsNullOrWhiteSpace(sig), "lookup_command(" + cmd + ") 摘要 signature 非空", json);
+                Assert(sig == null || !sig.Contains("（"), "lookup_command(" + cmd + ") signature 全角括号已归一化", sig);
+                Assert(!json.Contains("\"html\""), "lookup_command(" + cmd + ") 摘要不含完整 HTML");
+                Assert(json.Length < 2000, "lookup_command(" + cmd + ") 摘要保持轻量", "len=" + json.Length);
+            }
+
+            // 无“语法”行的常数 / 系统参数：关键信息必须进入摘要（源自帮助页的 值/初始值/权限/相关指令）。
+            AssertSummaryContains("TRUE", "signature", "-1", "常数 TRUE = -1 进入摘要");
+            AssertSummaryContains("PI", "signature", "3.14159", "常数 PI = 3.14159 进入摘要");
+            AssertSummaryContains("GrabTimeout", "signature", "ZV_SysSetDbl", "浮点参数带 ZV_SysSetDbl 签名");
+            AssertSummaryContains("GrabTimeout", "description", "2000", "浮点参数带初始值");
+            AssertSummaryContains("MaxCameras", "signature", "ZV_SysGetInt", "只读参数只给 Get 签名");
+            AssertSummaryContains("DataDir", "signature", "ZV_SysSetStr", "字符串参数带 ZV_SysSetStr 签名");
+            AssertSummaryContains("END", "description", "一定要在主程序结束后写END", "END 的关键约束进入摘要");
+            AssertSummaryContains("THEN", "description", "IF", "结构关键字指向 IF");
+            AssertSummaryContains("FRAME", "description", "CONNFRAME", "FRAME 指向相关指令 CONNFRAME");
+
+            // Layer 1：类别清单优先展示命令族（旧行为按条目数排序，首类别是“轴参数”）。
+            var buildCatalog = typeof(AiService).GetMethod("BuildSkillsCatalog", BindingFlags.NonPublic | BindingFlags.Static);
+            var catalog = buildCatalog == null ? "" : (buildCatalog.Invoke(null, null) as string ?? "");
+            Assert(catalog.Contains("Reference Libraries"), "Layer 1 catalog 含参考库段", catalog);
+            var catIdx = catalog.IndexOf("categories: ", StringComparison.Ordinal);
+            Assert(catIdx >= 0, "Layer 1 catalog 含类别线索", catalog);
+            if (catIdx >= 0)
+            {
+                var catLine = catalog.Substring(catIdx + "categories: ".Length).Split('\n')[0];
+                var firstCat = catLine.Split(',')[0].Trim();
+                Assert(firstCat.Contains("指令") || firstCat.Contains("函数"),
+                    "Layer 1 首个类别为命令族（指令/函数）", firstCat);
+            }
+        }
+
+        /// <summary>断言 lookup_command 摘要第一条结果的某个字段包含指定文本。</summary>
+        private static void AssertSummaryContains(string cmd, string field, string expected, string testName)
+        {
+            var json = _json.Serialize(AiService.LookupCommand(cmd, "false"));
+            var dict = _json.Deserialize<Dictionary<string, object>>(json);
+            var results = dict != null && dict.ContainsKey("results") ? dict["results"] as System.Collections.IList : null;
+            var first = results != null && results.Count > 0 ? results[0] as Dictionary<string, object> : null;
+            var value = first != null && first.ContainsKey(field) ? first[field] as string ?? "" : "";
+            Assert(value.Contains(expected), testName, field + "=" + value);
         }
 
         /// <summary>

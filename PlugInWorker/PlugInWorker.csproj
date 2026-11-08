@@ -53,6 +53,8 @@
     <Compile Include="RTSysEditor.cs" />
     <Compile Include="RTSysProjectModel.cs" />
     <Compile Include="ProgramWorkspace.cs" />
+    <Compile Include="BasEncoding.cs" />
+    <Compile Include="ProgramBackup.cs" />
     <Compile Include="ZMotionAPI.cs" />
     <Compile Include="ZMotionExtensions.cs" />
     <Compile Include="ZMotionHandle.cs" />

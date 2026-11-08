@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows;
@@ -24,6 +25,7 @@ namespace RTSys.PlugIn
         private AiService _ai;
         private bool _isProcessing;
         private DockPanel _inputPanel;
+        private bool _httpLogHooked;
         private Border _confirmPanel;
         private TaskCompletionSource<bool> _confirmTcs;
         private readonly object _confirmLock = new object();
@@ -41,6 +43,32 @@ namespace RTSys.PlugIn
         private ProgressBar _researchBar;
         private TextBlock _researchLabel;
 
+        // ---- 主题色（静态调色板）----
+        // BuildUI() 在构造期就写入所有控件的颜色，而 ApplyTheme() 是构造之后才被宿主调用的，
+        // 因此所有颜色必须统一走这里的调色板：BuildUI() 用调色板取值，
+        // ApplyTheme() 更新调色板后重建 UI，才能真正跟随宿主浅色/深色主题。
+        // 用 static 是因为消息模板的 ValueConverter（RoleToBrushConverter 等）是静态类，
+        // 无法访问实例字段，只能读这份全局调色板。
+        /// <summary>把主题色换算成派生色（描边/次级背景/分隔线），保证浅色主题下也有层次。</summary>
+        private static Color DeriveSurface(Color bg, double factor)
+        {
+            byte c(byte v) => (byte)Math.Max(0, Math.Min(255, (int)(v * factor)));
+            return Color.FromRgb(c(bg.R), c(bg.G), c(bg.B));
+        }
+
+        /// <summary>按背景亮度自动选黑/白前景色，保证按钮文字可读。</summary>
+        private static Color ContrastColor(Color bg)
+        {
+            double lum = (0.299 * bg.R + 0.587 * bg.G + 0.114 * bg.B) / 255.0;
+            return lum > 0.55 ? Color.FromRgb(32, 32, 32) : Color.FromRgb(240, 240, 240);
+        }
+
+        /// <summary>判断背景色是否为深色，用于选浅色/深色文本。</summary>
+        private static bool IsDarkBackground(Color bg)
+        {
+            double lum = (0.299 * bg.R + 0.587 * bg.G + 0.114 * bg.B) / 255.0;
+            return lum < 0.55;
+        }
         // 跟踪所有已打开的对话框（设置/历史/记忆/关于）。
         // 这些对话框在 RTSys 下没有 owner（ChatPanel 位于 HwndSource 中），
         // 插件销毁时不会自动关闭，必须显式关闭，否则会残留在宿主窗口之后。
@@ -122,19 +150,67 @@ namespace RTSys.PlugIn
             }
         }
 
-        /// <summary>
-        /// 应用主题色（背景 / 前景 / 强调色）。全部为尽力而为，失败仅记录日志；
+        /// <summary>应用主题色（背景 / 前景 / 强调色）。全部为尽力而为，失败仅记录日志；
         /// 宿主未提供主题时由调用方传入兜底深色。
-        /// </summary>
+        /// 更新主题字段后调用 RefreshTheme() 重建/刷新 UI。</summary>
         internal void ApplyTheme(Color background, Color foreground, Color accent)
         {
             try
             {
-                var bgBrush = new SolidColorBrush(background);
-                var fgBrush = new SolidColorBrush(foreground);
-                var accentBrush = new SolidColorBrush(accent);
+                // 写入全局调色板（静态转换器也读这份）
+                Palette.Bg = background;
+                Palette.Fg = foreground;
+                Palette.Accent = accent;
+
+                // 派生色：按背景亮度缩放，深色主题保持原有层次，浅色主题自动变浅
+                Palette.Surface = DeriveSurface(background, 1.5);
+                Palette.Toolbar = DeriveSurface(background, 1.67);
+                Palette.Border = DeriveSurface(background, 2.33);
+                Palette.Separator = DeriveSurface(background, 2.0);
+                Palette.Bubble = DeriveSurface(background, 1.83);
+                Palette.FgMuted = foreground;
+                Palette.AccentDark = DeriveSurface(accent, 0.75);
+                Palette.DialogBg = DeriveSurface(background, 1.33);
+                Palette.DialogInput = DeriveSurface(background, 1.83);
+
+                // 语义色：用户/系统/子 agent 气泡等按背景明暗调整对比度
+                bool isDark = IsDarkBackground(background);
+                Palette.UserBubble = isDark ? Color.FromRgb(0, 100, 200) : Color.FromRgb(0, 90, 170);
+                Palette.SystemBubble = isDark ? Color.FromRgb(60, 50, 20) : Color.FromRgb(255, 245, 210);
+                Palette.SubagentBubble = isDark ? Color.FromRgb(20, 60, 110) : Color.FromRgb(215, 230, 250);
+                Palette.SystemText = isDark ? Color.FromRgb(255, 200, 50) : Color.FromRgb(140, 90, 0);
+                Palette.FgDim = isDark ? Color.FromRgb(120, 120, 120) : Color.FromRgb(110, 110, 110);
+                Palette.Warning = isDark ? Color.FromRgb(180, 90, 0) : Color.FromRgb(230, 130, 20);
+                Palette.Info = isDark ? Color.FromRgb(20, 60, 110) : Color.FromRgb(200, 220, 245);
+                Palette.InfoBar = isDark ? Color.FromRgb(90, 170, 255) : Color.FromRgb(40, 110, 190);
+                Palette.ConfirmBg = isDark ? Color.FromRgb(50, 45, 20) : Color.FromRgb(255, 248, 225);
+                Palette.ConfirmBorder = isDark ? Color.FromRgb(120, 100, 30) : Color.FromRgb(200, 170, 60);
+                Palette.Danger = isDark ? Color.FromRgb(160, 40, 40) : Color.FromRgb(200, 50, 50);
+                Palette.Success = isDark ? Color.FromRgb(0, 120, 70) : Color.FromRgb(20, 150, 90);
+                Palette.Link = isDark ? Color.FromRgb(100, 180, 255) : Color.FromRgb(20, 100, 200);
+
+                RefreshTheme();
+            }
+            catch (Exception ex)
+            {
+                try { PlugInLog.LogException("ChatPanel.ApplyTheme", ex); } catch { }
+            }
+        }
+
+        /// <summary>用当前主题字段刷新整个 UI。BuildUI() 在初始化时已用主题字段，这里只负责刷新已创建控件的颜色。必要时可调用 BuildUI() 完全重建。</summary>
+        private void RefreshTheme()
+        {
+            try
+            {
+                var bgBrush = new SolidColorBrush(Palette.Bg);
+                var fgBrush = new SolidColorBrush(Palette.Fg);
+                var accentBrush = new SolidColorBrush(Palette.Accent);
+                var mutedBrush = new SolidColorBrush(Palette.FgMuted);
+                var dimBrush = new SolidColorBrush(Palette.FgDim);
+                var accentDarkBrush = new SolidColorBrush(Palette.AccentDark);
 
                 Background = bgBrush;
+
                 if (_scrollViewer != null)
                 {
                     _scrollViewer.Background = bgBrush;
@@ -147,8 +223,9 @@ namespace RTSys.PlugIn
                 }
                 if (_inputBox != null)
                 {
-                    _inputBox.Background = bgBrush;
-                    _inputBox.Foreground = fgBrush;
+                    _inputBox.Background = new SolidColorBrush(Palette.Surface);
+                    _inputBox.Foreground = new SolidColorBrush(Palette.Fg);
+                    _inputBox.BorderBrush = new SolidColorBrush(Palette.Border);
                 }
                 if (_sendBtn != null)
                 {
@@ -157,20 +234,20 @@ namespace RTSys.PlugIn
                 }
                 if (_statusInfo != null)
                 {
-                    _statusInfo.Foreground = fgBrush;
+                    _statusInfo.Foreground = dimBrush;
                     _statusInfo.Opacity = 0.65;
                 }
             }
             catch (Exception ex)
             {
-                try { PlugInLog.LogException("ChatPanel.ApplyTheme", ex); } catch { }
+                try { PlugInLog.LogException("ChatPanel.RefreshTheme", ex); } catch { }
             }
         }
 
         // --- Oscilloscope pattern: static factory ---
         private static readonly ToolPositionSettings _defaultPosition = new ToolPositionSettings(SizeToContent.Manual)
         {
-            fwidth = 420.0,
+            fwidth = 560.0,
             fheight = 560.0
         };
 
@@ -192,6 +269,7 @@ namespace RTSys.PlugIn
                 _tool = new ChatTool(this);
                 InitAiService();
                 BuildUI();
+                StartUiWatchdog();
                 // Prevent unhandled UI thread exceptions from crashing the RTSys process
                 System.Windows.Threading.Dispatcher.CurrentDispatcher.UnhandledException += (s, e) =>
                 {
@@ -202,7 +280,9 @@ namespace RTSys.PlugIn
                 this.Loaded += (s, e) =>
                 {
                     LoadLastSession();
+                    HookHttpLog();
                 };
+                this.Unloaded += (s, e) => UnhookHttpLog();
             }
             catch (Exception ex)
             {
@@ -250,6 +330,7 @@ namespace RTSys.PlugIn
         private void InitAiService()
         {
             _ai = new AiService();
+            ApiServer.UseService(_ai);
             _ai.OnAiThinkingStart = () =>
             {
                 Dispatcher.BeginInvoke(new Action(() =>
@@ -412,6 +493,11 @@ namespace RTSys.PlugIn
         {
             lock (_confirmLock)
             {
+                if (Dispatcher.CheckAccess())
+                {
+                    PlugInLog.Log("ShowPlanApproval: called on UI thread; cannot block, rejecting");
+                    return false;
+                }
                 var tcs = new TaskCompletionSource<bool>();
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
@@ -424,8 +510,23 @@ namespace RTSys.PlugIn
                     _confirmPanel.Visibility = Visibility.Visible;
                     _confirmTcs = tcs;
                 }));
+                return WaitForUserDecision(tcs, "plan");
+            }
+        }
+
+        /// <summary>等待用户在面板上点「允许/拒绝」；超时返回 false，避免后台线程永久阻塞。</summary>
+        private static bool WaitForUserDecision(TaskCompletionSource<bool> tcs, string kind)
+        {
+            try
+            {
+                if (!tcs.Task.Wait(TimeSpan.FromMinutes(10)))
+                {
+                    PlugInLog.Log("WaitForUserDecision(" + kind + "): timeout after 10 minutes");
+                    return false;
+                }
                 return tcs.Task.Result;
             }
+            catch { return false; }
         }
 
         private static string Truncate(string s, int max)
@@ -434,9 +535,83 @@ namespace RTSys.PlugIn
             return s.Length <= max ? s : s.Substring(0, max) + "...";
         }
 
+        private static int _uiWatchdogStarted;
+
+        /// <summary>
+        /// UI 线程看门狗：UI 连续两次 3 秒内未处理排队的空操作时，抓取 UI 线程托管栈写日志，
+        /// 用于定位 RTSys 卡死（挂起时 CPU 为 0、无窗口响应）。仅诊断，不改变业务行为。
+        /// </summary>
+        private static void StartUiWatchdog()
+        {
+            if (Interlocked.Exchange(ref _uiWatchdogStarted, 1) != 0) return;
+            var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            var uiThread = Thread.CurrentThread;
+            var t = new Thread(() =>
+            {
+                int missed = 0;
+                while (true)
+                {
+                    Thread.Sleep(5000);
+                    try
+                    {
+                        var op = dispatcher.InvokeAsync(new Action(() => { }));
+                        if (op.Task.Wait(3000))
+                        {
+                            missed = 0;
+                            continue;
+                        }
+                        missed++;
+                        if (missed < 2) continue;
+
+                        var sb = new StringBuilder();
+                        sb.AppendLine("[UiWatchdog] UI thread unresponsive (>8s). Managed stack:");
+                        try { sb.AppendLine(new System.Diagnostics.StackTrace(uiThread, false).ToString()); }
+                        catch (Exception ex) { sb.AppendLine("stack capture failed: " + ex.Message); }
+                        sb.AppendLine("ThreadState=" + uiThread.ThreadState);
+                        PlugInLog.Log(sb.ToString());
+                        missed = 0;
+                        Thread.Sleep(20000);
+                    }
+                    catch (Exception ex)
+                    {
+                        try { PlugInLog.LogException("UiWatchdog", ex); } catch { }
+                    }
+                }
+            }) { IsBackground = true, Name = "RTSysAI-UiWatchdog" };
+            t.Start();
+        }
+
+        private void HookHttpLog()
+        {
+            if (_httpLogHooked) return;
+            ApiServer.RequestCompleted += OnHttpRequestLog;
+            _httpLogHooked = true;
+        }
+
+        private void UnhookHttpLog()
+        {
+            if (!_httpLogHooked) return;
+            ApiServer.RequestCompleted -= OnHttpRequestLog;
+            _httpLogHooked = false;
+        }
+
+        /// <summary>外部 9090 HTTP 请求/响应摘要，直接显示在原有消息区域。</summary>
+        private void OnHttpRequestLog(string line)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _messages.Add(new ChatMessage("System", "[HTTP] " + line));
+                    _scrollViewer.ScrollToEnd();
+                }));
+            }
+            catch { }
+        }
+
         private void BuildUI()
         {
-            Background = new SolidColorBrush(Color.FromRgb(30, 30, 30));
+            Background = new SolidColorBrush(Palette.Bg);
 
             var root = new DockPanel();
 
@@ -449,9 +624,9 @@ namespace RTSys.PlugIn
                 Content = Lang.S("Settings"),
                 Height = 24,
                 Padding = new Thickness(8, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(50, 50, 50)),
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(70, 70, 70))
+                Background = new SolidColorBrush(Palette.Toolbar),
+                Foreground = new SolidColorBrush(Palette.FgMuted),
+                BorderBrush = new SolidColorBrush(Palette.Border)
             };
             settingsBtn.Click += OnSettings;
             DockPanel.SetDock(settingsBtn, Dock.Right);
@@ -463,9 +638,9 @@ namespace RTSys.PlugIn
                 Height = 24,
                 Padding = new Thickness(8, 0, 8, 0),
                 Margin = new Thickness(0, 0, 4, 0),
-                Background = new SolidColorBrush(Color.FromRgb(50, 50, 50)),
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(70, 70, 70))
+                Background = new SolidColorBrush(Palette.Toolbar),
+                Foreground = new SolidColorBrush(Palette.FgMuted),
+                BorderBrush = new SolidColorBrush(Palette.Border)
             };
             historyBtn.Click += OnHistory;
             DockPanel.SetDock(historyBtn, Dock.Right);
@@ -477,9 +652,9 @@ namespace RTSys.PlugIn
                 Height = 24,
                 Padding = new Thickness(8, 0, 8, 0),
                 Margin = new Thickness(0, 0, 4, 0),
-                Background = new SolidColorBrush(Color.FromRgb(50, 50, 50)),
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(70, 70, 70))
+                Background = new SolidColorBrush(Palette.Toolbar),
+                Foreground = new SolidColorBrush(Palette.FgMuted),
+                BorderBrush = new SolidColorBrush(Palette.Border)
             };
             memoryBtn.Click += OnMemory;
             DockPanel.SetDock(memoryBtn, Dock.Right);
@@ -491,9 +666,9 @@ namespace RTSys.PlugIn
                 Height = 24,
                 Padding = new Thickness(8, 0, 8, 0),
                 Margin = new Thickness(0, 0, 4, 0),
-                Background = new SolidColorBrush(Color.FromRgb(50, 50, 50)),
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(70, 70, 70))
+                Background = new SolidColorBrush(Palette.Toolbar),
+                Foreground = new SolidColorBrush(Palette.FgMuted),
+                BorderBrush = new SolidColorBrush(Palette.Border)
             };
             clearBtn.Click += (s, e) =>
             {
@@ -510,8 +685,8 @@ namespace RTSys.PlugIn
                 Height = 24,
                 Padding = new Thickness(8, 0, 8, 0),
                 Margin = new Thickness(0, 0, 4, 0),
-                Background = new SolidColorBrush(Color.FromRgb(0, 90, 160)),
-                Foreground = Brushes.White,
+                Background = new SolidColorBrush(Palette.Accent),
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Accent)),
                 BorderBrush = Brushes.Transparent
             };
             newBtn.Click += (s, e) =>
@@ -526,7 +701,7 @@ namespace RTSys.PlugIn
 
             _statusInfo = new TextBlock
             {
-                Foreground = new SolidColorBrush(Color.FromRgb(120, 120, 120)),
+                Foreground = new SolidColorBrush(Palette.FgDim),
                 FontSize = 11,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 0, 0, 0)
@@ -538,9 +713,9 @@ namespace RTSys.PlugIn
                 Content = "关于",
                 Height = 24,
                 Padding = new Thickness(8, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(50, 50, 50)),
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(70, 70, 70))
+                Background = new SolidColorBrush(Palette.Toolbar),
+                Foreground = new SolidColorBrush(Palette.FgMuted),
+                BorderBrush = new SolidColorBrush(Palette.Border)
             };
             aboutBtn.Click += OnAbout;
             DockPanel.SetDock(aboutBtn, Dock.Left);
@@ -551,7 +726,7 @@ namespace RTSys.PlugIn
             // ---- Plan Mode 状态条（橙色高亮，仅 plan mode 激活时可见）----
             _planModeBanner = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(180, 90, 0)),
+                Background = new SolidColorBrush(Palette.Warning),
                 Padding = new Thickness(8, 4, 8, 4),
                 Visibility = Visibility.Collapsed
             };
@@ -560,7 +735,7 @@ namespace RTSys.PlugIn
             {
                 Text = Lang.L("🔒 Plan Mode 活动中 — AI 正在调研，所有写操作（写程序 / 编译 / 运行 / VR / TABLE）已拦截，等待 AI 提交计划给你审批",
                               "🔒 Plan Mode active — AI is investigating. All write operations (programs / compile / run / VR / TABLE) are blocked, waiting for AI to submit a plan for your approval"),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Warning)),
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap
             };
@@ -570,7 +745,7 @@ namespace RTSys.PlugIn
             // ---- research 子 agent 进度条 banner（蓝色，仅 research 运行时可见）----
             _researchBanner = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(20, 60, 110)),
+                Background = new SolidColorBrush(Palette.Info),
                 Padding = new Thickness(8, 4, 8, 4),
                 Visibility = Visibility.Collapsed
             };
@@ -579,7 +754,7 @@ namespace RTSys.PlugIn
             _researchLabel = new TextBlock
             {
                 Text = Lang.L("[research] 子 agent 正在调研…", "[research] subagent investigating…"),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Info)),
                 FontSize = 12,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
@@ -590,7 +765,7 @@ namespace RTSys.PlugIn
                 Value = 0,
                 Height = 8,
                 Margin = new Thickness(0, 3, 0, 0),
-                Foreground = new SolidColorBrush(Color.FromRgb(90, 170, 255))
+                Foreground = new SolidColorBrush(Palette.InfoBar)
             };
             researchStack.Children.Add(_researchLabel);
             researchStack.Children.Add(_researchBar);
@@ -598,7 +773,7 @@ namespace RTSys.PlugIn
             root.Children.Add(_researchBanner);
 
             // Top separator
-            var topSep = new Border { Height = 1, Background = new SolidColorBrush(Color.FromRgb(60, 60, 60)) };
+            var topSep = new Border { Height = 1, Background = new SolidColorBrush(Palette.Separator) };
             topSep.SetValue(DockPanel.DockProperty, Dock.Top);
             root.Children.Add(topSep);
 
@@ -612,8 +787,8 @@ namespace RTSys.PlugIn
                 Width = 60,
                 Height = 28,
                 Margin = new Thickness(4, 0, 0, 0),
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 215)),
-                Foreground = Brushes.White,
+                Background = new SolidColorBrush(Palette.Accent),
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Accent)),
                 BorderBrush = Brushes.Transparent
             };
             _sendBtn.Click += OnSend;
@@ -627,9 +802,9 @@ namespace RTSys.PlugIn
                 TextWrapping = TextWrapping.Wrap,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalContentAlignment = VerticalAlignment.Top,
-                Background = new SolidColorBrush(Color.FromRgb(45, 45, 45)),
-                Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(70, 70, 70)),
+                Background = new SolidColorBrush(Palette.Surface),
+                Foreground = new SolidColorBrush(Palette.Fg),
+                BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 4, 6, 4)
             };
             _inputBox.KeyDown += (s, e) =>
@@ -647,8 +822,8 @@ namespace RTSys.PlugIn
             _confirmPanel = new Border
             {
                 Visibility = Visibility.Collapsed,
-                Background = new SolidColorBrush(Color.FromRgb(50, 45, 20)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(120, 100, 30)),
+                Background = new SolidColorBrush(Palette.ConfirmBg),
+                BorderBrush = new SolidColorBrush(Palette.ConfirmBorder),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(12, 6, 12, 6),
                 Margin = new Thickness(8, 4, 8, 4)
@@ -661,7 +836,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("Reject"),
                 Width = 65, Height = 24,
-                Background = new SolidColorBrush(Color.FromRgb(160, 40, 40)),
+                Background = new SolidColorBrush(Palette.Danger),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent
             };
@@ -673,7 +848,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("Allow"),
                 Width = 65, Height = 24,
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 70)),
+                Background = new SolidColorBrush(Palette.Success),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent
             };
@@ -684,7 +859,7 @@ namespace RTSys.PlugIn
             var confirmLabel = new TextBlock
             {
                 Text = Lang.S("ConfirmMsg"),
-                Foreground = new SolidColorBrush(Color.FromRgb(255, 200, 50)),
+                Foreground = new SolidColorBrush(Palette.SystemText),
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 FontSize = 12
@@ -695,7 +870,7 @@ namespace RTSys.PlugIn
             root.Children.Add(_confirmPanel);
 
             // Bottom separator
-            var sep = new Border { Height = 1, Background = new SolidColorBrush(Color.FromRgb(60, 60, 60)) };
+            var sep = new Border { Height = 1, Background = new SolidColorBrush(Palette.Separator) };
             sep.SetValue(DockPanel.DockProperty, Dock.Bottom);
             root.Children.Add(sep);
 
@@ -737,9 +912,9 @@ namespace RTSys.PlugIn
             // Expander for thinking content (collapsed by default, visible only when ThinkingText is not empty)
             var expanderFactory = new FrameworkElementFactory(typeof(Expander));
             expanderFactory.SetValue(Expander.IsExpandedProperty, AiService.ShowThinking);
-            expanderFactory.SetValue(Expander.BackgroundProperty, new SolidColorBrush(Color.FromRgb(45, 45, 45)));
-            expanderFactory.SetValue(Expander.ForegroundProperty, new SolidColorBrush(Color.FromRgb(160, 160, 160)));
-            expanderFactory.SetValue(Expander.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(70, 70, 70)));
+            expanderFactory.SetValue(Expander.BackgroundProperty, new SolidColorBrush(Palette.Surface));
+            expanderFactory.SetValue(Expander.ForegroundProperty, new SolidColorBrush(Palette.FgMuted));
+            expanderFactory.SetValue(Expander.BorderBrushProperty, new SolidColorBrush(Palette.Border));
             expanderFactory.SetValue(Expander.MarginProperty, new Thickness(0, 0, 0, 4));
             expanderFactory.SetBinding(Expander.VisibilityProperty,
                 new System.Windows.Data.Binding("ThinkingText") { Converter = new ThinkingVisibilityConverter() });
@@ -755,7 +930,7 @@ namespace RTSys.PlugIn
             thinkingTextFactory.SetValue(TextBox.BackgroundProperty, Brushes.Transparent);
             thinkingTextFactory.SetValue(TextBox.FontSizeProperty, 11.0);
             thinkingTextFactory.SetValue(TextBox.FontStyleProperty, FontStyles.Italic);
-            thinkingTextFactory.SetValue(TextBox.ForegroundProperty, new SolidColorBrush(Color.FromRgb(140, 140, 140)));
+            thinkingTextFactory.SetValue(TextBox.ForegroundProperty, new SolidColorBrush(Palette.FgDim));
             thinkingTextFactory.SetValue(TextBox.AcceptsReturnProperty, true);
             thinkingTextFactory.SetValue(TextBox.MaxHeightProperty, 200.0);
             thinkingTextFactory.SetValue(TextBox.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
@@ -815,7 +990,7 @@ namespace RTSys.PlugIn
 
             _isProcessing = true;
             _sendBtn.Content = Lang.S("Stop");
-            _sendBtn.Background = new SolidColorBrush(Color.FromRgb(160, 40, 40));
+            _sendBtn.Background = new SolidColorBrush(Palette.Danger);
             _sendBtn.BorderBrush = Brushes.Transparent;
             _inputBox.Focus();
 
@@ -828,13 +1003,23 @@ namespace RTSys.PlugIn
                 {
                     _ai.Chat(capturedText, token);
                 }
+                catch (Exception ex)
+                {
+                    // 不能静默吞掉：此前异常会让 UI 只复位状态、不显示任何内容，表现为“发送后无输出”。
+                    try { PlugInLog.LogException("ChatPanel OnSend Chat", ex); } catch { }
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        _messages.Add(new ChatMessage("System", "对话异常: " + ex.Message));
+                        _scrollViewer.ScrollToEnd();
+                    }));
+                }
                 finally
                 {
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
                         _isProcessing = false;
                         _sendBtn.Content = Lang.S("Send");
-                        _sendBtn.Background = new SolidColorBrush(Color.FromRgb(0, 120, 215));
+                        _sendBtn.Background = new SolidColorBrush(Palette.Accent);
                         _sendBtn.BorderBrush = Brushes.Transparent;
                         _inputBox.Focus();
                         UpdateStatusInfo();
@@ -875,17 +1060,20 @@ namespace RTSys.PlugIn
             if (_messages.Count == 0) return;
             try
             {
-                var saveData = _messages.Select(m =>
-                {
-                    var d = new Dictionary<string, string>
+                // HTTP 请求/响应日志只用于界面显示，不写入会话历史，避免把外部输入带进 AI 上下文。
+                var saveData = _messages
+                    .Where(m => !(m.Text ?? "").StartsWith("[HTTP] ", StringComparison.Ordinal))
+                    .Select(m =>
                     {
-                        { "role", m.Role },
-                        { "text", m.Text }
-                    };
-                    if (!string.IsNullOrEmpty(m.ThinkingText))
-                        d["thinkingText"] = m.ThinkingText;
-                    return d;
-                }).ToList();
+                        var d = new Dictionary<string, string>
+                        {
+                            { "role", m.Role },
+                            { "text", m.Text }
+                        };
+                        if (!string.IsNullOrEmpty(m.ThinkingText))
+                            d["thinkingText"] = m.ThinkingText;
+                        return d;
+                    }).ToList();
                 _ai.SaveSession(_json.Serialize(saveData));
             }
             catch { }
@@ -905,7 +1093,7 @@ namespace RTSys.PlugIn
                 Height = 380,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                Background = new SolidColorBrush(Palette.DialogBg),
                 // 子对话框不应在任务栏留下独立按钮（RTSys 下 owner 可能为 null）
                 ShowInTaskbar = false
             };
@@ -921,27 +1109,27 @@ namespace RTSys.PlugIn
                 Margin = new Thickness(0, 0, 0, 8)
             });
 
-            var linkBlock = new TextBlock
+            var githubLink = new TextBlock
             {
                 Text = "github.com/lfmmd/RTSysAI",
-                Foreground = new SolidColorBrush(Color.FromRgb(100, 180, 255)),
+                Foreground = new SolidColorBrush(Palette.Link),
                 FontSize = 12,
                 Cursor = Cursors.Hand,
-                Margin = new Thickness(0, 0, 0, 16)
+                Margin = new Thickness(0, 0, 0, 6)
             };
-            linkBlock.MouseLeftButtonUp += (s, ev) =>
+            githubLink.MouseLeftButtonUp += (s, ev) =>
             {
                 try { System.Diagnostics.Process.Start("https://github.com/lfmmd/RTSysAI"); } catch { }
             };
-            panel.Children.Add(linkBlock);
+            panel.Children.Add(githubLink);
 
             var giteeLink = new TextBlock
             {
                 Text = "gitee.com/lfmmd/RTSysAI",
-                Foreground = new SolidColorBrush(Color.FromRgb(100, 180, 255)),
+                Foreground = new SolidColorBrush(Palette.Link),
                 FontSize = 12,
                 Cursor = Cursors.Hand,
-                Margin = new Thickness(0, 0, 0, 16)
+                Margin = new Thickness(0, 0, 0, 14)
             };
             giteeLink.MouseLeftButtonUp += (s, ev) =>
             {
@@ -960,8 +1148,8 @@ namespace RTSys.PlugIn
 
             panel.Children.Add(new TextBlock
             {
-                Text = "本插件由第三方开发（BY:LFMMD），与 RTSysAI 无关。\n\n插件按\"原样\"提供，不作任何明示或暗示的保证。使用本插件产生的任何风险由用户自行承担。",
-                Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                Text = "本插件由第三方开发（BY:LFMMD），与 RTSys 无关。\n\n插件按\"原样\"提供，不作任何明示或暗示的保证。使用本插件产生的任何风险由用户自行承担。",
+                Foreground = new SolidColorBrush(Palette.FgMuted),
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 12,
                 Margin = new Thickness(0, 0, 0, 16)
@@ -973,7 +1161,7 @@ namespace RTSys.PlugIn
                 Width = 70,
                 Height = 28,
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 215)),
+                Background = new SolidColorBrush(Palette.Accent),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent
             };
@@ -997,7 +1185,7 @@ namespace RTSys.PlugIn
                 Height = 450,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                Background = new SolidColorBrush(Palette.DialogBg),
                 ShowInTaskbar = false
             };
 
@@ -1006,7 +1194,7 @@ namespace RTSys.PlugIn
             panel.Children.Add(new TextBlock
             {
                 Text = Lang.S("MemoryDesc"),
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
+                Foreground = new SolidColorBrush(Palette.FgMuted),
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 11,
                 Margin = new Thickness(0, 0, 0, 12)
@@ -1019,9 +1207,9 @@ namespace RTSys.PlugIn
                 TextWrapping = TextWrapping.Wrap,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Height = 280,
-                Background = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                Background = new SolidColorBrush(Palette.DialogInput),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 4, 6, 4),
                 FontFamily = new FontFamily("Consolas")
             };
@@ -1034,7 +1222,7 @@ namespace RTSys.PlugIn
                 Content = Lang.S("ClearMemory"),
                 Height = 28,
                 Padding = new Thickness(10, 0, 10, 0),
-                Background = new SolidColorBrush(Color.FromRgb(160, 40, 40)),
+                Background = new SolidColorBrush(Palette.Danger),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent
             };
@@ -1058,9 +1246,9 @@ namespace RTSys.PlugIn
                 Content = Lang.S("Cancel"),
                 Width = 70, Height = 28,
                 Margin = new Thickness(0, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(60, 60, 60)),
+                Background = new SolidColorBrush(Palette.Toolbar),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80))
+                BorderBrush = new SolidColorBrush(Palette.Border)
             };
             cancelBtn.Click += (s, ev) => win.Close();
             btnRight.Children.Add(cancelBtn);
@@ -1069,7 +1257,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("Save"),
                 Width = 70, Height = 28,
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 215)),
+                Background = new SolidColorBrush(Palette.Accent),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent
             };
@@ -1102,7 +1290,7 @@ namespace RTSys.PlugIn
                 Height = 600,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                Background = new SolidColorBrush(Palette.DialogBg),
                 // 关键：不显示任务栏按钮，否则关闭后任务栏残留可切换窗口
                 ShowInTaskbar = false
             };
@@ -1117,9 +1305,9 @@ namespace RTSys.PlugIn
                 Height = 28,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 2),
-                Background = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                Background = new SolidColorBrush(Palette.DialogInput),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0),
                 ToolTip = "192.168.1.100"
             };
@@ -1140,9 +1328,9 @@ namespace RTSys.PlugIn
                 Height = 28,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 10),
-                Background = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                Background = new SolidColorBrush(Palette.DialogInput),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0),
                 PasswordChar = '*'
             };
@@ -1156,9 +1344,9 @@ namespace RTSys.PlugIn
                 Height = 28,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 10),
-                Background = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                Background = new SolidColorBrush(Palette.DialogInput),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
             panel.Children.Add(urlBox);
@@ -1171,9 +1359,9 @@ namespace RTSys.PlugIn
                 Height = 28,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 14),
-                Background = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                Background = new SolidColorBrush(Palette.DialogInput),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
             panel.Children.Add(modelBox);
@@ -1186,9 +1374,9 @@ namespace RTSys.PlugIn
                 Height = 28,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 14),
-                Background = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                Background = new SolidColorBrush(Palette.DialogInput),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
             panel.Children.Add(lightModelBox);
@@ -1245,9 +1433,9 @@ namespace RTSys.PlugIn
                 Height = 28,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 14),
-                Background = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                Background = new SolidColorBrush(Palette.DialogInput),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
             panel.Children.Add(budgetBox);
@@ -1327,9 +1515,9 @@ namespace RTSys.PlugIn
                 Content = "初始化 Skill 数据",
                 Height = 28,
                 Padding = new Thickness(10, 0, 10, 0),
-                Background = new SolidColorBrush(Color.FromRgb(80, 50, 0)),
+                Background = new SolidColorBrush(Palette.Warning),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(120, 80, 0))
+                BorderBrush = new SolidColorBrush(Palette.ConfirmBorder)
             };
             var skillStatus = new TextBlock
             {
@@ -1337,7 +1525,7 @@ namespace RTSys.PlugIn
                 Margin = new Thickness(8, 0, 0, 0),
                 Text = _ai.SkillsInitialized ? "已初始化" : "",
                 Foreground = _ai.SkillsInitialized
-                    ? new SolidColorBrush(Color.FromRgb(0, 200, 0))
+                    ? new SolidColorBrush(Palette.Success)
                     : Brushes.Gray
             };
             initBtn.Click += (s, ev) =>
@@ -1348,7 +1536,7 @@ namespace RTSys.PlugIn
                         MessageBoxButton.YesNo, MessageBoxImage.Question);
                     if (r != MessageBoxResult.Yes) return;
                 }
-                var err = _ai.InitializeSkills();
+                var err = _ai.InitializeSkills(force: true);
                 if (err != null)
                 {
                     MessageBox.Show(win, err, "错误", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1356,7 +1544,7 @@ namespace RTSys.PlugIn
                 }
                 MessageBox.Show(win, "Skill 数据初始化完成。", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
                 skillStatus.Text = "已初始化";
-                skillStatus.Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 0));
+                skillStatus.Foreground = new SolidColorBrush(Palette.Success);
             };
             DockPanel.SetDock(initBtn, Dock.Left);
             DockPanel.SetDock(skillStatus, Dock.Left);
@@ -1371,14 +1559,18 @@ namespace RTSys.PlugIn
             DockPanel.SetDock(btnPanel, Dock.Right);
             btnRow.Children.Add(btnPanel);
 
+            // 在保存按钮的 lambda 之前声明，保存时才读取勾选状态。
+            CheckBox motionApiCheck = null;
+            TextBox httpPortBox = null;
+
             var cancelBtn = new Button
             {
                 Content = Lang.S("Cancel"),
                 Width = 70, Height = 28,
                 Margin = new Thickness(0, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(60, 60, 60)),
+                Background = new SolidColorBrush(Palette.Toolbar),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80))
+                BorderBrush = new SolidColorBrush(Palette.Border)
             };
             cancelBtn.Click += (s, ev) => win.DialogResult = false;
             btnPanel.Children.Add(cancelBtn);
@@ -1387,7 +1579,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("Save"),
                 Width = 70, Height = 28,
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 215)),
+                Background = new SolidColorBrush(Palette.Accent),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent
             };
@@ -1402,6 +1594,12 @@ namespace RTSys.PlugIn
                     MessageBox.Show(win, Lang.S("EmptyKey"), Lang.S("Error"), MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
+                int httpPort;
+                if (httpPortBox == null || !int.TryParse(httpPortBox.Text.Trim(), out httpPort) || httpPort < 1024 || httpPort > 65535)
+                {
+                    MessageBox.Show(win, "HTTP 端口必须是 1024-65535 之间的整数。", "端口无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
                 int budget = AiService.BudgetTokens;
                 int.TryParse(budgetBox.Text, out budget);
                 _ai.SaveConfig(key, model, url, showStatusCheck.IsChecked, includeImagesCheck.IsChecked, controllerValidationCheck.IsChecked, enableThinkingCheck.IsChecked, budget, showThinkingCheck.IsChecked, memoryEnabledCheck.IsChecked, localizeThinkingCheck.IsChecked, useChineseDocsCheck.IsChecked, lightModel, ((ComboBoxItem)dialectBox.SelectedItem)?.Tag as string);
@@ -1412,6 +1610,21 @@ namespace RTSys.PlugIn
                         "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
                 SaveRTSysIp(rtsysIp);
+                ApiServer.SetMotionControlEnabled(motionApiCheck.IsChecked == true);
+
+                // HTTP 端口：写入配置并立即重启监听；失败时提示（服务会尝试恢复原端口）。
+                ApiServer.SetConfiguredPort(httpPort);
+                string portError;
+                if (!ApiServer.RestartActive(httpPort, out portError))
+                {
+                    MessageBox.Show(win, portError ?? "HTTP 端口切换失败", "HTTP 端口",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                else if (!string.IsNullOrEmpty(portError))
+                {
+                    MessageBox.Show(win, portError, "HTTP 端口", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+
                 _messages.Add(new ChatMessage("System", Lang.S("SettingsSaved")));
                 _messages.Add(new ChatMessage("System",
                     string.IsNullOrEmpty(rtsysIp) ? "控制器 IP 已清空" : "控制器 IP 已保存: " + rtsysIp));
@@ -1419,6 +1632,93 @@ namespace RTSys.PlugIn
                 win.DialogResult = true;
             };
             btnPanel.Children.Add(saveBtn);
+
+            // ---- HTTP API 安全 ----
+            panel.Children.Add(MakeLabel("HTTP API 安全"));
+            panel.Children.Add(MakeLabel("HTTP API 端口（1024-65535，默认 9090）"));
+            var configuredPort = LoadConfigValue("httpPort");
+            httpPortBox = new TextBox
+            {
+                Text = string.IsNullOrWhiteSpace(configuredPort) ? "9090" : configuredPort,
+                Height = 28,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 6),
+                Background = new SolidColorBrush(Palette.DialogInput),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Palette.Border),
+                Padding = new Thickness(6, 0, 6, 0)
+            };
+            panel.Children.Add(httpPortBox);
+            motionApiCheck = new CheckBox
+            {
+                Content = "允许运动控制 API（危险：run/stop、VR/TABLE、IO、EtherCAT 写入）",
+                IsChecked = string.Equals(LoadConfigValue("enableMotionControlApi"), "true", StringComparison.OrdinalIgnoreCase),
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            panel.Children.Add(motionApiCheck);
+
+            var httpSecurityHint = new TextBlock
+            {
+                Text = "所有 9090 请求都需要 X-Auth-Token（令牌文件：%APPDATA%\\RTSysAI\\api_token.txt）。" +
+                       "运动控制请求另需 X-Motion-Nonce，记忆写入另需 X-Confirm-Nonce；一次性授权码 5 分钟内有效。",
+                Foreground = Brushes.Gray,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            panel.Children.Add(httpSecurityHint);
+
+            var httpSecurityButtons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            var copyTokenBtn = new Button
+            {
+                Content = "复制 API 令牌",
+                Height = 26,
+                Padding = new Thickness(8, 0, 8, 0),
+                Margin = new Thickness(0, 0, 8, 0),
+                Background = new SolidColorBrush(Palette.Toolbar),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Palette.Border)
+            };
+            copyTokenBtn.Click += (s, ev) =>
+            {
+                try
+                {
+                    Clipboard.SetText(ApiServer.CurrentToken);
+                    MessageBox.Show(win, "API 令牌已复制到剪贴板。\n请求头：X-Auth-Token", "HTTP API 令牌",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(win, ex.Message, "复制失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            };
+            httpSecurityButtons.Children.Add(copyTokenBtn);
+
+            var nonceBtn = new Button
+            {
+                Content = "生成一次性授权码",
+                Height = 26,
+                Padding = new Thickness(8, 0, 8, 0),
+                Background = new SolidColorBrush(Palette.Toolbar),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Palette.Border)
+            };
+            nonceBtn.Click += (s, ev) =>
+            {
+                var nonce = ApiServer.IssueSensitiveNonce();
+                try { Clipboard.SetText(nonce); } catch { }
+                MessageBox.Show(win,
+                    "一次性授权码（5 分钟内有效，仅可使用一次）：\n\n" + nonce +
+                    "\n\n已复制到剪贴板。\n请求头：X-Motion-Nonce（运动控制）或 X-Confirm-Nonce（记忆写入）",
+                    "敏感操作授权", MessageBoxButton.OK, MessageBoxImage.Warning);
+            };
+            httpSecurityButtons.Children.Add(nonceBtn);
+            panel.Children.Add(httpSecurityButtons);
 
             panel.Children.Add(btnRow);
             // 内容可能超出固定窗口高度（checkbox 多 + 高 DPI 缩放），用 ScrollViewer 兜底，
@@ -1513,8 +1813,8 @@ namespace RTSys.PlugIn
                 var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RTSysAI", "config.json");
                 if (!File.Exists(configPath))
                 {
-                    if (key == "apiUrl") return "https://api.deepseek.com/anthropic";
-                    if (key == "model") return "claude-sonnet-4-20250514";
+                    if (key == "apiUrl") return AiService.DefaultApiUrl;
+                    if (key == "model") return AiService.DefaultModel;
                     return "";
                 }
                 var text = File.ReadAllText(configPath);
@@ -1523,8 +1823,8 @@ namespace RTSys.PlugIn
                 if (cfg.TryGetValue(key, out val) && val != null && !string.IsNullOrEmpty(val.ToString()))
                     return val.ToString();
                 // Return defaults for empty values
-                if (key == "apiUrl") return "https://api.deepseek.com/anthropic";
-                if (key == "model") return "claude-sonnet-4-20250514";
+                if (key == "apiUrl") return AiService.DefaultApiUrl;
+                if (key == "model") return AiService.DefaultModel;
             }
             catch { }
             if (key == "apiUrl") return "https://api.deepseek.com/anthropic";
@@ -1538,22 +1838,8 @@ namespace RTSys.PlugIn
         /// </summary>
         private static void SaveRTSysIp(string ip)
         {
-            try
-            {
-                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RTSysAI");
-                var configPath = Path.Combine(dir, "config.json");
-                var cfg = new Dictionary<string, object>();
-                if (File.Exists(configPath))
-                {
-                    var text = File.ReadAllText(configPath);
-                    var loaded = _json.Deserialize<Dictionary<string, object>>(text);
-                    if (loaded != null) cfg = loaded;
-                }
-                cfg["RTSysIP"] = ip ?? "";
-                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllText(configPath, _json.Serialize(cfg));
-                PlugInLog.Log("SaveRTSysIp() RTSysIP=" + (ip ?? ""));
-            }
+            // 统一走 RTSysHandlers.SetRTSysIp：合并配置、重置缓存连接，避免两处独立读改写互相覆盖。
+            try { RTSysHandlers.SetRTSysIp(ip); }
             catch (Exception ex)
             {
                 try { PlugInLog.LogException("ChatPanel.SaveRTSysIp", ex); } catch { }
@@ -1590,7 +1876,7 @@ namespace RTSys.PlugIn
                 Width = 420,
                 Height = 450,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                Background = new SolidColorBrush(Palette.DialogBg),
                 ShowInTaskbar = false
             };
 
@@ -1610,7 +1896,7 @@ namespace RTSys.PlugIn
                 Content = Lang.S("Delete"),
                 Width = 70, Height = 28,
                 Margin = new Thickness(0, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(160, 40, 40)),
+                Background = new SolidColorBrush(Palette.Danger),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent
             };
@@ -1621,7 +1907,7 @@ namespace RTSys.PlugIn
                 Content = Lang.S("Open"),
                 Width = 70, Height = 28,
                 Margin = new Thickness(0, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 215)),
+                Background = new SolidColorBrush(Palette.Accent),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent
             };
@@ -1631,9 +1917,9 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("Close"),
                 Width = 70, Height = 28,
-                Background = new SolidColorBrush(Color.FromRgb(60, 60, 60)),
+                Background = new SolidColorBrush(Palette.Toolbar),
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80))
+                BorderBrush = new SolidColorBrush(Palette.Border)
             };
             closeBtn.Click += (s, ev) => win.Close();
             btnPanel.Children.Add(closeBtn);
@@ -1641,14 +1927,14 @@ namespace RTSys.PlugIn
             dock.Children.Add(btnPanel);
 
             // Separator
-            var sep = new Border { Height = 1, Background = new SolidColorBrush(Color.FromRgb(60, 60, 60)) };
+            var sep = new Border { Height = 1, Background = new SolidColorBrush(Palette.Separator) };
             sep.SetValue(DockPanel.DockProperty, Dock.Bottom);
             dock.Children.Add(sep);
 
             // List
             var listBox = new ListBox
             {
-                Background = new SolidColorBrush(Color.FromRgb(35, 35, 35)),
+                Background = new SolidColorBrush(Palette.Bg),
                 Foreground = Brushes.White,
                 BorderBrush = Brushes.Transparent,
                 Margin = new Thickness(4)
@@ -1661,10 +1947,10 @@ namespace RTSys.PlugIn
                     Tag = session.Id,
                     Content = $"{session.Time}  {session.Preview}"
                 };
-                item.Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200));
+                item.Foreground = new SolidColorBrush(Palette.FgMuted);
                 item.FontSize = 12;
                 item.Padding = new Thickness(4, 6, 4, 6);
-                item.BorderBrush = new SolidColorBrush(Color.FromRgb(50, 50, 50));
+                item.BorderBrush = new SolidColorBrush(Palette.Toolbar);
                 listBox.Items.Add(item);
             }
 
@@ -1751,6 +2037,11 @@ namespace RTSys.PlugIn
         {
             lock (_confirmLock)
             {
+                if (Dispatcher.CheckAccess())
+                {
+                    PlugInLog.Log("ShowInlineConfirmation: called on UI thread; cannot block, rejecting");
+                    return false;
+                }
                 var tcs = new TaskCompletionSource<bool>();
 
                 Dispatcher.BeginInvoke(new Action(() =>
@@ -1763,7 +2054,7 @@ namespace RTSys.PlugIn
                     _confirmTcs = tcs;
                 }));
 
-                return tcs.Task.Result;
+                return WaitForUserDecision(tcs, toolName);
             }
         }
 
@@ -1880,6 +2171,40 @@ namespace RTSys.PlugIn
         }
     }
 
+    /// <summary>
+    /// 插件主题调色板：静态类供 ChatPanel.BuildUI()、ApplyTheme()、RefreshTheme() 以及
+    /// 消息模板的 ValueConverter 共用，避免硬编码颜色。RTSys 加载插件进宿主进程后，
+    /// ApplyTheme() 会把宿主读取的主题色写入此类，整个插件 UI 随之切换。
+    /// </summary>
+    internal static class Palette
+    {
+        public static Color Bg = Color.FromRgb(30, 30, 30);       // 页面背景
+        public static Color Surface = Color.FromRgb(45, 45, 45);   // 输入框/卡片等次级背景
+        public static Color Toolbar = Color.FromRgb(50, 50, 50);  // 工具栏按钮背景
+        public static Color Border = Color.FromRgb(70, 70, 70);   // 描边
+        public static Color Separator = Color.FromRgb(60, 60, 60);// 分隔线
+        public static Color Fg = Color.FromRgb(220, 220, 220);    // 默认前景
+        public static Color FgMuted = Color.FromRgb(180, 180, 180); // 次要前景（按钮文字）
+        public static Color FgDim = Color.FromRgb(120, 120, 120);   // 弱化前景（状态栏）
+        public static Color Accent = Color.FromRgb(0, 120, 215);  // 强调色（发送/新建）
+        public static Color AccentDark = Color.FromRgb(0, 90, 160); // 强调色（深一档）
+        public static Color Bubble = Color.FromRgb(55, 55, 55);   // AI 消息气泡
+        public static Color UserBubble = Color.FromRgb(0, 100, 200); // 用户消息气泡
+        public static Color SystemBubble = Color.FromRgb(60, 50, 20); // 系统消息气泡
+        public static Color SubagentBubble = Color.FromRgb(20, 60, 110); // 子 agent 气泡
+        public static Color SystemText = Color.FromRgb(255, 200, 50); // 系统消息文字
+        public static Color Warning = Color.FromRgb(180, 90, 0);   // Plan Mode 横幅
+        public static Color Info = Color.FromRgb(20, 60, 110);     // research 横幅
+        public static Color InfoBar = Color.FromRgb(90, 170, 255); // research 进度条
+        public static Color ConfirmBg = Color.FromRgb(50, 45, 20);// 确认面板背景
+        public static Color ConfirmBorder = Color.FromRgb(120, 100, 30); // 确认面板描边
+        public static Color Danger = Color.FromRgb(160, 40, 40);   // 危险操作（删除/拒绝）
+        public static Color Success = Color.FromRgb(0, 120, 70);   // 成功操作（允许/保存）
+        public static Color Link = Color.FromRgb(100, 180, 255);   // 链接
+        public static Color DialogBg = Color.FromRgb(40, 40, 40);  // 对话框背景
+        public static Color DialogInput = Color.FromRgb(55, 55, 55); // 对话框输入框背景
+    }
+
     internal class ChatMessage : System.ComponentModel.INotifyPropertyChanged
     {
         private string _text;
@@ -1922,10 +2247,10 @@ namespace RTSys.PlugIn
         public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
         {
             var role = value as string;
-            if (role == "User") return new SolidColorBrush(Color.FromRgb(0, 100, 200));
-            if (role == "System") return new SolidColorBrush(Color.FromRgb(60, 50, 20));
-            if (role == "Subagent") return new SolidColorBrush(Color.FromRgb(20, 60, 110));   // 深蓝（与 research banner 同色系）
-            return new SolidColorBrush(Color.FromRgb(55, 55, 55));
+            if (role == "User") return new SolidColorBrush(Palette.UserBubble);
+            if (role == "System") return new SolidColorBrush(Palette.SystemBubble);
+            if (role == "Subagent") return new SolidColorBrush(Palette.SubagentBubble);
+            return new SolidColorBrush(Palette.Bubble);
         }
         public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) => null;
     }
@@ -1946,8 +2271,8 @@ namespace RTSys.PlugIn
         {
             var role = value as string;
             if (role == "User") return Brushes.White;
-            if (role == "System") return new SolidColorBrush(Color.FromRgb(255, 200, 50));
-            return (Brush)new SolidColorBrush(Color.FromRgb(220, 220, 220));
+            if (role == "System") return new SolidColorBrush(Palette.SystemText);
+            return new SolidColorBrush(Palette.Fg);
         }
         public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) => null;
     }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -19,7 +19,7 @@ namespace RTSys.PlugIn
         // （去重扫的是 _conversationHistory 主历史；子 agent 的调用在隔离 subMessages，既扫不到自己的、
         // 又会误命中主线历史返回误导性的 "reference earlier tool_result"。子 agent 靠 prompt + cap 兜底）。
         private bool _inSubagent = false;
-        private const int SubagentToolResultCap = 16000;   // 单工具结果上限，防 full HTML 把子 agent 自己撑爆
+        private const int SubagentToolResultCap = 32000;   // 单工具结果上限，防 full HTML 把子 agent 自己撑爆
         private const int SubagentTrimCap = 40;            // subMessages 条数兜底上限
 
         /// <summary>钳制子 agent 轮数到 [1, SubagentMaxTurns]，非法值（0/负/过大）回落默认。纯函数，便于单测。</summary>
@@ -46,6 +46,24 @@ namespace RTSys.PlugIn
                 }
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 判断子 agent 的“结论”是否只是承诺/占位（例如“我会完整查阅这些命令的文档。”）。
+        /// 这类文本没有任何结论价值，必须继续追问而不是当作最终结论返回主线。
+        /// </summary>
+        private static bool IsPlaceholderConclusion(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return true;
+            var t = text.Trim();
+            var prefixes = new[]
+            {
+                "我会", "我将", "我准备", "接下来我会", "接下来我将", "我先",
+                "let me", "i will", "i'll", "i am going to"
+            };
+            foreach (var p in prefixes)
+                if (t.StartsWith(p, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
         }
 
         /// <summary>轨迹摘要用：压扁换行/制表为单空格、合并连续空格、截断到 max 并加省略号。</summary>
@@ -277,9 +295,22 @@ namespace RTSys.PlugIn
                         .Where(b => GetStringValue(b, "type") == "tool_use")
                         .ToList();
 
-                    // 无 tool_use → 研究完成（最后一轮必是纯 text 结论）
+                    // 无 tool_use → 通常是最终结论；但若只是“我会…”式承诺，继续追问一次。
                     if (toolUses.Count == 0 || result.StopReason != "tool_use")
+                    {
+                        if (IsPlaceholderConclusion(lastText) && turn + 1 < maxTurns)
+                        {
+                            trace.AppendLine("[placeholder conclusion detected — asking for the real conclusion]");
+                            subMessages.Add(new Dictionary<string, object>
+                            {
+                                { "role", "user" },
+                                { "content", "你上一条回复只是承诺/占位，没有给出结论。请直接基于已执行的工具结果输出最终结论：不要写“我会…”，不要再调用新工具；逐条列出已确认的事实、结论与仍未确认的未知项。" }
+                            });
+                            lastText = "";
+                            continue;
+                        }
                         break;
+                    }
 
                     // 进度：结构化回调驱动 ChatPanel 顶部进度条（不再走 OnToolStatus，避免聊天流刷屏）
                     var names = string.Join(", ", toolUses.Select(b => GetStringValue(b, "name")));
@@ -358,9 +389,9 @@ namespace RTSys.PlugIn
                     trace.AppendLine("── conclusion ──");
                     trace.AppendLine(Clip(lastText, 1500));
                 }
-                return string.IsNullOrEmpty(lastText)
-                    ? ("[" + agentType + " subagent completed with no textual conclusion]", false)
-                    : (lastText, true);
+                if (IsPlaceholderConclusion(lastText))
+                    return ("[" + agentType + " subagent returned only a placeholder/promise, no conclusion]", false);
+                return (lastText, true);
             }
             finally
             {

@@ -103,7 +103,7 @@ internal static class HostSim
     private static int Main(string[] args)
     {
         string dllPath = args.Length > 0 ? args[0] :
-            @"%USERPROFILE%\Desktop\RTSys\Plug_in\AIPlugin\RTSysPlugInNative.dll";
+            "RTSysPlugInNative.dll";
 
         Console.WriteLine("[host] loading shim: " + dllPath);
         IntPtr hMod = LoadLibrary(dllPath);

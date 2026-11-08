@@ -35,7 +35,9 @@ namespace RTSys.PlugIn
 
         private static List<SkillIndexEntry> _index;
         private static DateTime _indexLoadTime;
-        private static readonly Dictionary<string, Dictionary<string, object>> _skillDetailCache = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _indexLock = new object();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Dictionary<string, object>> _skillDetailCache =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
 
         private static List<MdSkillEntry> _mdSkills;
         private static DateTime _mdSkillsLoadTime;
@@ -43,50 +45,53 @@ namespace RTSys.PlugIn
 
         private static List<SkillIndexEntry> LoadIndex()
         {
-            if (_index != null && (DateTime.Now - _indexLoadTime).TotalMinutes < 10)
-                return _index;
-
-            _index = new List<SkillIndexEntry>();
-            try
+            lock (_indexLock)
             {
-                if (!Directory.Exists(SkillsDir)) return _index;
-                // 文档语言：默认英文，开关开启用中文。每个库按 {lib}/{lang}/ 组织。
-                var lang = _useChineseDocs ? "zh" : "en";
-                // 加载参考库子目录（rtbasic），每条 entry 的 Dir 标识来源。
-                foreach (var lib in new[] { "rtbasic" })
+                if (_index != null && (DateTime.Now - _indexLoadTime).TotalMinutes < 10)
+                    return _index;
+
+                _index = new List<SkillIndexEntry>();
+                try
                 {
-                    var libDir = Path.Combine(SkillsDir, lib, lang);
-                    var idxFile = Path.Combine(libDir, "index.json");
-                    // 语言回退：RTBasic 官方参考只有中文版，所选语言没有索引时回退到另一语言，
-                    // 否则 useChineseDocs=false（默认）会让整个 catalog 变空。
-                    if (!File.Exists(idxFile))
+                    if (!Directory.Exists(SkillsDir)) return _index;
+                    // 文档语言：默认英文，开关开启用中文。每个库按 {lib}/{lang}/ 组织。
+                    var lang = _useChineseDocs ? "zh" : "en";
+                    // 加载参考库子目录（rtbasic），每条 entry 的 Dir 标识来源。
+                    foreach (var lib in new[] { "rtbasic" })
                     {
-                        var alt = lang == "zh" ? "en" : "zh";
-                        var altDir = Path.Combine(SkillsDir, lib, alt);
-                        var altIdx = Path.Combine(altDir, "index.json");
-                        if (!File.Exists(altIdx)) continue;
-                        libDir = altDir;
-                        idxFile = altIdx;
-                    }
-                    var text = File.ReadAllText(idxFile);
-                    var items = _json.Deserialize<List<Dictionary<string, object>>>(text);
-                    if (items == null) continue;
-                    foreach (var item in items)
-                        _index.Add(new SkillIndexEntry
+                        var libDir = Path.Combine(SkillsDir, lib, lang);
+                        var idxFile = Path.Combine(libDir, "index.json");
+                        // 语言回退：RTBasic 官方参考只有中文版，所选语言没有索引时回退到另一语言，
+                        // 否则 useChineseDocs=false（默认）会让整个 catalog 变空。
+                        if (!File.Exists(idxFile))
                         {
-                            Name = GetStr(item, "name") ?? "",
-                            Type = GetStr(item, "type") ?? "",
-                            Desc = GetStr(item, "desc") ?? "",
-                            Lib = lib,
-                            File = GetStr(item, "file"),
-                            Dir = libDir,
-                            Sig = GetStr(item, "sig")
-                        });
+                            var alt = lang == "zh" ? "en" : "zh";
+                            var altDir = Path.Combine(SkillsDir, lib, alt);
+                            var altIdx = Path.Combine(altDir, "index.json");
+                            if (!File.Exists(altIdx)) continue;
+                            libDir = altDir;
+                            idxFile = altIdx;
+                        }
+                        var text = File.ReadAllText(idxFile);
+                        var items = _json.Deserialize<List<Dictionary<string, object>>>(text);
+                        if (items == null) continue;
+                        foreach (var item in items)
+                            _index.Add(new SkillIndexEntry
+                            {
+                                Name = GetStr(item, "name") ?? "",
+                                Type = GetStr(item, "type") ?? "",
+                                Desc = GetStr(item, "desc") ?? "",
+                                Lib = lib,
+                                File = GetStr(item, "file"),
+                                Dir = libDir,
+                                Sig = GetStr(item, "sig")
+                            });
+                    }
+                    _indexLoadTime = DateTime.Now;
                 }
-                _indexLoadTime = DateTime.Now;
+                catch { }
+                return _index;
             }
-            catch { }
-            return _index;
         }
 
         // ---- Markdown Skills (skills/general/<name>/SKILL.md) ----
@@ -293,9 +298,20 @@ namespace RTSys.PlugIn
             return t;
         }
 
-        // 每个库取 top 8 类别（按条目数降序），格式 "Axis Parameter (221), System Command (86), ..."。
-        // top 8 通常覆盖 80%+ 条目，足够给 AI 当"猜命令"的方向线索；再多的边际效益递减且占 token。
+        // 每个库最多列 8 个类别，格式 "CAD指令 (34), 语法指令 (30), ..."。
+        // RTBasic 帮助目录把参数表和命令族混在一起（实测 181 个类别），纯按条目数排序会被
+        // “轴参数/轴状态”占满，写代码最需要的命令族反而被挤出。因此先取名称含“指令/函数”
+        // （英文库兼容 Command/Function）的类别，不足 8 个再按条目数补齐。
         private const int MaxTypeCategoriesPerLib = 8;
+
+        private static bool IsCommandCategory(string typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)) return false;
+            return typeName.IndexOf("指令", StringComparison.Ordinal) >= 0
+                || typeName.IndexOf("函数", StringComparison.Ordinal) >= 0
+                || typeName.IndexOf("command", StringComparison.OrdinalIgnoreCase) >= 0
+                || typeName.IndexOf("function", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
 
         private static string SummarizeTypes(List<SkillIndexEntry> entries)
         {
@@ -310,9 +326,26 @@ namespace RTSys.PlugIn
             if (counts.Count == 0) return "(uncategorized)";
             var sorted = new List<KeyValuePair<string, int>>(counts);
             sorted.Sort((a, b) => b.Value.CompareTo(a.Value));
+
+            var chosen = new List<KeyValuePair<string, int>>();
+            var chosenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in sorted)
+            {
+                if (chosen.Count >= MaxTypeCategoriesPerLib) break;
+                if (IsCommandCategory(kv.Key) && chosenNames.Add(kv.Key)) chosen.Add(kv);
+            }
+            if (chosen.Count < MaxTypeCategoriesPerLib)
+            {
+                foreach (var kv in sorted)
+                {
+                    if (chosen.Count >= MaxTypeCategoriesPerLib) break;
+                    if (chosenNames.Add(kv.Key)) chosen.Add(kv);
+                }
+            }
+
             var parts = new List<string>();
-            for (int i = 0; i < sorted.Count && i < MaxTypeCategoriesPerLib; i++)
-                parts.Add(string.Format("{0} ({1})", sorted[i].Key, sorted[i].Value));
+            foreach (var kv in chosen)
+                parts.Add(string.Format("{0} ({1})", kv.Key, kv.Value));
             return string.Join(", ", parts);
         }
 
@@ -433,6 +466,38 @@ namespace RTSys.PlugIn
             return null;
         }
 
+        // Layer 2 摘要的签名：优先用校验表解析出的规范形式；解析失败时回退到索引里的
+        // “语法”原文首行（实测约 40% 的命令因中文前缀 / 全角括号 / 无括号写法解析不到），
+        // 并归一化全角括号/逗号。只影响摘要展示，不改 validate_basic 的签名表。
+        private const int MaxSummarySignatureChars = 240;
+
+        private static string GetSummarySignature(SkillIndexEntry entry)
+        {
+            if (entry == null) return "";
+
+            CommandSignature sig;
+            if (_signatures != null && _signatures.TryGetValue(entry.Name, out sig)
+                && !string.IsNullOrWhiteSpace(sig.RawSignature))
+                return NormalizeSignaturePunctuation(sig.RawSignature);
+
+            var raw = entry.Sig;
+            if (string.IsNullOrWhiteSpace(raw)) return "";
+            var lines = NormalizeSignaturePunctuation(raw)
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length == 0) return "";
+            var line = lines[0].Trim();
+            if (line.Length == 0) return "";
+            return line.Length <= MaxSummarySignatureChars
+                ? line
+                : line.Substring(0, MaxSummarySignatureChars - 1) + "…";
+        }
+
+        private static string NormalizeSignaturePunctuation(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            return s.Replace('（', '(').Replace('）', ')').Replace('，', ',');
+        }
+
         internal static object LookupCommand(string query, string fullFlag, string library = null)
         {
             if (string.IsNullOrEmpty(query))
@@ -492,13 +557,11 @@ namespace RTSys.PlugIn
                 var summaries = new List<object>();
                 foreach (var m in matched)
                 {
-                    var sigText = "";
-                    if (_signatures != null && _signatures.TryGetValue(m.Name, out var sig))
-                        sigText = sig.RawSignature;
                     summaries.Add(new
                     {
                         name = m.Name,
-                        signature = sigText,
+                        type = m.Type ?? "",
+                        signature = GetSummarySignature(m),
                         description = m.Desc ?? "",
                         library = m.Lib ?? ""
                     });
@@ -506,7 +569,7 @@ namespace RTSys.PlugIn
                 return new
                 {
                     results = summaries,
-                    hint = "Pass full=true for complete HTML documentation with examples."
+                    hint = "Call again with full=true only when this signature/description is insufficient (examples, detailed parameters, preconditions)."
                 };
             }
 

@@ -9,17 +9,13 @@ namespace RTSys.PlugIn
     {
         // ---- Tool Execution ----
 
-        private static readonly HashSet<string> SourceWriteTools = new HashSet<string>
-        {
-            "write_source", "patch_source"
-        };
-
         private static readonly HashSet<string> WriteTools = new HashSet<string>
         {
             "write_source", "patch_source", "write_vr", "write_table",
             "create_program", "delete_program", "rename_program", "copy_program",
+            "restore_backup",
             "save_project", "open_project",
-            "compile_program", "run_program", "stop_program",
+            "run_program", "stop_program",
             "update_memory"
         };
 
@@ -29,7 +25,7 @@ namespace RTSys.PlugIn
         // 运行/停止/上下传/写 VR·TABLE·IEC 等影响实时控制器状态的，也不在本集合内，仍需人工逐次确认。
         private static readonly HashSet<string> AutoAllowWriteTools = new HashSet<string>
         {
-            "write_source", "patch_source", "create_program", "compile_program", "save_project", "open_project"
+            "write_source", "patch_source", "create_program", "save_project", "open_project"
         };
 
         // 纯 IO 工具：不需要 UI 线程（不访问 MP 项目模型），可绕过 DispatcherHelper.Invoke 直接调用。
@@ -43,10 +39,11 @@ namespace RTSys.PlugIn
             "get_status", "list_programs", "read_source", "write_source", "patch_source",
             "read_vr", "write_vr", "read_table", "write_table", "list_axes",
             "get_axis_detail", "read_drive_param", "write_drive_param",
-            "read_ethercat_sdo", "write_ethercat_sdo", "compile_program", "run_program",
+            "read_ethercat_sdo", "write_ethercat_sdo", "validate_basic", "run_program",
             "stop_program", "lookup_command", "read_skill", "discover_skills",
             "search_code", "update_memory", "list_plugins",
-            "list_project_items", "task_create", "task_update", "task_list",
+            "list_project_items", "list_backups", "restore_backup",
+            "task_create", "task_update", "task_list",
             "enter_plan_mode", "exit_plan_mode", "research", "review", "debug",
             "explore", "verify",
             // 控制器连接控制工具（无需 UI 线程，纯 IO）
@@ -74,13 +71,7 @@ namespace RTSys.PlugIn
                         return _json.Serialize(dedupResult);
                 }
 
-                // Backup source code before write operations
-                if (SourceWriteTools.Contains(name))
-                {
-                    var progName = GetStr(input, "name");
-                    if (!string.IsNullOrEmpty(progName))
-                        BackupSource(progName);
-                }
+                // 写前备份已下沉到 RTSysHandlers（write/patch/delete/rename 统一覆盖 AI/HTTP/UI）。
 
                 // Write operations need confirmation
                 if (WriteTools.Contains(name))
@@ -152,6 +143,9 @@ namespace RTSys.PlugIn
                 {
                     // 委派给子 agent（research/review/debug/explore/verify）：独立上下文跑调研循环，只回传结论文本。
                     // 差异：prompt（GetSubagentPrompt）+ schema 工具池（SubagentToolPools）+ thinking（review/debug/verify 跟随全局开关）。运行时拦截共用 SubagentReadTools 超集。
+                    const int MaxSubagentDispatchesPerTurn = 2;
+                    if (_subagentDispatchesThisTurn >= MaxSubagentDispatchesPerTurn)
+                        return new { error = "subagent dispatch limit reached for this user request (" + MaxSubagentDispatchesPerTurn + "). Do not dispatch more subagents; produce the final answer from the information already gathered." };
                     var query = GetStr(input, "query");
                     if (string.IsNullOrEmpty(query))
                         return new { error = "query is required — describe what the subagent should investigate" };
@@ -160,10 +154,14 @@ namespace RTSys.PlugIn
                     // 子 agent 失败（API 错误 / 无文本产出）→ 返回 error 触发 tool_result.is_error，主模型据此重试或如实告知（不再把失败兜底文本伪装成结论）
                     if (!success)
                         return new { error = name + " subagent failed to produce a conclusion (API errors or no textual output). Consider retrying, possibly with a more specific query." };
+                    // 只统计成功派发，避免一次 API 失败就耗掉重试额度
+                    _subagentDispatchesThisTurn++;
                     return new { conclusion = conclusion };
                 }
                 case "get_status": return RTSysHandlers.GetStatus();
                 case "list_programs": return RTSysHandlers.ListPrograms();
+                case "list_backups": return ProgramBackup.ListBackups(GetStr(input, "name"));
+                case "restore_backup": return ProgramBackup.RestoreBackup(GetStr(input, "file"), GetStr(input, "name"));
                 case "read_source":
                 {
                     var readResult = RTSysHandlers.ReadSource(GetStr(input, "name"), input);
@@ -177,7 +175,7 @@ namespace RTSys.PlugIn
                     if (RTSysHandlers.GetProgramDialect(progName) == "rtbasic")
                     {
                         var code = GetStr(input, "sourceCode") ?? "";
-                        var errs = ValidateRTBasicCode(code);
+                        var errs = ValidateTrioBasicCodeErrors(code);
                         if (errs.Count > 0)
                             return new { error = "BLOCKED by RTBasic validation:\n  " + string.Join("\n  ", errs) };
                     }
@@ -198,7 +196,7 @@ namespace RTSys.PlugIn
                                 var newStr = GetStr(dict, "new_string") ?? GetStr(dict, "content") ?? "";
                                 if (!string.IsNullOrEmpty(newStr))
                                 {
-                                    errs.AddRange(ValidateRTBasicCode(newStr));
+                                    errs.AddRange(ValidateTrioBasicCodeErrors(newStr));
                                 }
                             }
                         }
@@ -241,6 +239,7 @@ namespace RTSys.PlugIn
                 case "save_project": return RTSysHandlers.SaveProject();
                 case "open_program": return RTSysHandlers.OpenProgram(GetStr(input, "name"));
                 case "lookup_command": return LookupCommand(GetStr(input, "query"), GetStr(input, "full"), GetStr(input, "library"));
+                case "validate_basic": return ValidateTrioBasicCodePublic(GetStr(input, "code") ?? "");
                 case "read_skill": return ReadSkill(GetStr(input, "name"));
                 case "discover_skills": return DiscoverSkills(GetStr(input, "category"));
                 case "search_code": return RTSysHandlers.SearchCode(GetStr(input, "query"), GetBool(input, "caseSensitive"));
@@ -276,7 +275,7 @@ namespace RTSys.PlugIn
             return new
             {
                 plan_mode = true,
-                hint = "Plan Mode is now active. All write/modify tools (write_source, compile_program, run_program, write_vr, etc.) are blocked. " +
+                hint = "Plan Mode is now active. All write/modify tools (write_source, patch_source, run_program, write_vr, etc.) are blocked. " +
                        "Use read-only tools to investigate, then call exit_plan_mode with your plan to request user approval."
             };
         }
@@ -419,7 +418,7 @@ namespace RTSys.PlugIn
         {
             "get_status", "list_programs", "read_source", "read_vr", "read_table",
             "list_axes", "lookup_command", "read_skill", "discover_skills",
-            "search_code", "get_axis_detail", "read_drive_param",
+            "search_code", "get_axis_detail", "read_drive_param", "validate_basic",
             "read_ethercat_sdo", "list_plugins", "list_project_items", "read_hmi",
             // 新增：控制器连接状态查询（只读，子 agent 可用）
             "controller_status"
@@ -466,6 +465,8 @@ namespace RTSys.PlugIn
             {
                 Tool("get_status", "Get controller connection status, product name, firmware version, project name. ALWAYS works (even when no controller IP is configured) — the response includes 'connectionState' (NotConfigured | Disconnected | Connected), 'connected' (bool), and a 'hint' with actionable guidance. Also returns 'pendingUploads': program names saved locally but not yet downloaded to the controller. Call this FIRST if a controller-dependent tool fails: if connectionState is NotConfigured, ASK THE USER for the RTSys controller IP (they can set it in 「设置」); if Disconnected, tell the user to check the network and that the controller is powered on.", NoParams()),
                 Tool("list_programs", "List all programs available for editing. Works OFFLINE when no controller IP is configured: returns programs from the local cache (origin=\"local\"). When a controller is connected, merges local cache + controller programs and marks each item's origin (\"project\" | \"local\" | \"controller\" | \"both\" | \"project+controller\") plus isDirty/lastSyncedUtc so the AI can tell which programs are saved locally but not yet downloaded to the controller. Programs marked origin=\"local\" exist only in the local cache and need an explicit download to take effect on the controller.", NoParams()),
+                Tool("list_backups", "List automatic pre-write backups (program .bas and project .zpj). Optional name filters by program. Returns {success,count,backups:[{file,program,kind,reason,time,size}]}. Backups are created automatically before write_source/patch_source/delete_program/rename_program/create_program/copy_program and use the original file encoding (ANSI/UTF-8 auto-detected).", Props(("name", "Program name filter (optional)", true))),
+                Tool("restore_backup", "Restore a .bas program from an automatic backup. file comes from list_backups; name is the target program (optional, defaults to the program recorded in the backup file name). Requires confirmation. Project-file (.zpj) backups are for manual restore only.", Props(("file", "Backup file name from list_backups", false), ("name", "Target program name (optional)", true))),
                 Tool("read_source", "Read source code of a program. Works OFFLINE: reads from the local cache first; if not cached and the controller is connected, pulls from the controller AND caches it locally. If the program is neither cached locally nor reachable on a controller, returns a friendly connection error. The system auto-returns the FIRST CHUNK for files >400 lines or >12000 chars — the response includes totalLines and a hint when more chunks exist. You MUST check totalLines vs endLine and continue with startLine=endLine+1 to read subsequent chunks; NEVER assume the first response contains the whole file.", Props(
                     ("name", "Program name", false),
                     ("startLine", "Starting 1-based line number (optional, for pagination)", true),
@@ -519,7 +520,9 @@ namespace RTSys.PlugIn
                     ("index", "Analogue channel index (0-based)", false)
                 )),
                 Tool("list_alarms", "Report the controller's last error code/description and per-axis alarm codes. Note: zmotion.dll exposes no alarm history/table.", NoParams()),
-                Tool("compile_program", "Compile a program on the controller", Props("name", "Program name")),
+                Tool("validate_basic", "Validate RTBasic source code against the command/signature index. Returns {ok, errors[]}. Use BEFORE write_source when unsure about command names or argument counts; also catches hallucinated commands. Works offline.", Props(
+                    ("code", "RTBasic source code to validate", false)
+                )),
                 Tool("run_program", "Run a program on the controller (requires confirmation)", Props(
                     ("name", "Program name", false),
                     ("process", "Process number", true)
@@ -589,7 +592,7 @@ namespace RTSys.PlugIn
                     ("description", "New description (optional)", true)
                 )),
                 Tool("task_list", "List all tasks with their current status. Use this to verify progress and pick the next task to work on.", NoParams()),
-                Tool("enter_plan_mode", "Enter Plan Mode: all write/modify tools (write_source, patch_source, compile_program, run_program, write_vr, write_table, etc.) are blocked. Use this at the start of a non-trivial task to investigate first with read-only tools, then present a plan via exit_plan_mode for user approval before making any changes. Avoid for trivial single-step requests, AND for batch same-operation-on-many-items tasks (fix/check all programs) — those are independent sub-tasks; use `task_create` + process one at a time instead.", NoParams()),
+                Tool("enter_plan_mode", "Enter Plan Mode: all write/modify tools (write_source, patch_source, run_program, write_vr, write_table, etc.) are blocked. Use this at the start of a non-trivial task to investigate first with read-only tools, then present a plan via exit_plan_mode for user approval before making any changes. Avoid for trivial single-step requests, AND for batch same-operation-on-many-items tasks (fix/check all programs) — those are independent sub-tasks; use `task_create` + process one at a time instead.", NoParams()),
                 Tool("exit_plan_mode", "Present your plan to the user for approval and exit Plan Mode. The user will approve or reject. If rejected, Plan Mode stays active — revise the plan or do more investigation. If approved, write/modify tools become available.", Props(
                     ("plan", "The complete plan: what files/VR/programs you will change, why, and the verification steps. Be specific.", false)
                 )),

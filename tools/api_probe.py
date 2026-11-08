@@ -14,6 +14,7 @@ verdict found, 2 = ApiServer unreachable (plugin not activated).
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -22,6 +23,20 @@ from datetime import datetime
 
 DEFAULT_PORTS = (9090, 9091, 9092, 9093)
 MAX_BODY = 4 * 1024 * 1024
+
+
+def load_auth_token():
+    """Read the API token written by the plugin (current user only)."""
+    path = os.path.join(os.environ.get("APPDATA", ""), "RTSysAI", "api_token.txt")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            token = handle.read().strip()
+        return token or None
+    except OSError:
+        return None
+
+
+AUTH_TOKEN = load_auth_token()
 
 # (id, method, path, kind)
 ROUTES = [
@@ -71,8 +86,10 @@ VERDICT_ORDER = ("OK", "NOT_CONFIGURED", "NOT_SUPPORTED", "ERROR",
 
 def http_request(url, method, timeout):
     """Return (status, body_text, error_text). status is None on connect failure."""
-    req = urllib.request.Request(url, method=method,
-                                 headers={"Accept": "application/json"})
+    headers = {"Accept": "application/json"}
+    if AUTH_TOKEN:
+        headers["X-Auth-Token"] = AUTH_TOKEN
+    req = urllib.request.Request(url, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read(MAX_BODY)

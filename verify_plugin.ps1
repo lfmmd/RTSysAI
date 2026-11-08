@@ -11,8 +11,8 @@
 # ============================================================================
 $ErrorActionPreference = "Stop"
 
-$RTSYS_EXE   = "%USERPROFILE%\Desktop\RTSys\RTSys.exe"
-$PLUGIN_DIR  = "%USERPROFILE%\Desktop\RTSys\Plug_in\AIPlugin"
+$RTSYS_EXE   = Join-Path $env:USERPROFILE "Desktop\RTSys\RTSys.exe"
+$PLUGIN_DIR  = Join-Path $env:USERPROFILE "Desktop\RTSys\Plug_in\AIPlugin"
 $API_URL     = "http://localhost:9090/"
 $API_TIMEOUT = 60
 $CHECK_INTERVAL = 2
@@ -81,7 +81,7 @@ $pluginLoaded = $false
 $start = Get-Date
 while ((Get-Date) - $start -lt (New-TimeSpan -Seconds 60)) {
     # Check plugin.log for "Create() OK hwnd=..."
-    $logPath = "%USERPROFILE%\AppData\Roaming\RTSysAI\plugin.log"
+    $logPath = Join-Path $env:APPDATA "RTSysAI\plugin.log"
     if (Test-Path $logPath) {
         $content = Get-Content $logPath -Raw -ErrorAction SilentlyContinue
         if ($content -match "Create\(\) OK hwnd=0x[0-9A-Fa-f]+") {
@@ -91,7 +91,7 @@ while ((Get-Date) - $start -lt (New-TimeSpan -Seconds 60)) {
         }
     }
     # Check shim_diag.log for Create() returning non-zero
-    $shimLog = "%USERPROFILE%\Desktop\RTSys\Plug_in\AIPlugin\shim_diag.log"
+    $shimLog = Join-Path $PLUGIN_DIR "shim_diag.log"
     if (Test-Path $shimLog) {
         $content = Get-Content $shimLog -Raw -ErrorAction SilentlyContinue
         if ($content -match "ExecuteInDefaultAppDomain\(Create\) -\&gt; ret=[1-9]") {
@@ -117,7 +117,7 @@ $apiOk = $false
 while ((Get-Date) - $start -lt (New-TimeSpan -Seconds $API_TIMEOUT)) {
     # Check plugin.log / shim_diag.log for new load events to track progress
     if (-not $pluginLoaded) {
-        $logPath = "%USERPROFILE%\AppData\Roaming\RTSysAI\plugin.log"
+        $logPath = Join-Path $env:APPDATA "RTSysAI\plugin.log"
         if (Test-Path $logPath) {
             $content = Get-Content $logPath -Raw -ErrorAction SilentlyContinue
             if ($content -match "Create\(\) OK hwnd=0x[0-9A-Fa-f]+") {
@@ -126,7 +126,7 @@ while ((Get-Date) - $start -lt (New-TimeSpan -Seconds $API_TIMEOUT)) {
                 Write-Host "  [OK]   Plugin loaded (Create() OK detected in plugin.log)"
             }
         }
-        $shimLog = "%USERPROFILE%\Desktop\RTSys\Plug_in\AIPlugin\shim_diag.log"
+        $shimLog = Join-Path $PLUGIN_DIR "shim_diag.log"
         if (Test-Path $shimLog) {
             $content = Get-Content $shimLog -Raw -ErrorAction SilentlyContinue
             if ($content -match "ExecuteInDefaultAppDomain\(Create\) -\&gt; ret=[1-9]") {
@@ -137,7 +137,10 @@ while ((Get-Date) - $start -lt (New-TimeSpan -Seconds $API_TIMEOUT)) {
     }
 
     try {
-        $resp = Invoke-WebRequest -Uri $API_URL -Method GET -TimeoutSec 2 -ErrorAction Stop
+        $tokenFile = Join-Path $env:APPDATA 'RTSysAI\api_token.txt'
+        $headers = @{}
+        if (Test-Path $tokenFile) { $headers['X-Auth-Token'] = (Get-Content $tokenFile -Raw).Trim() }
+        $resp = Invoke-WebRequest -Uri $API_URL -Method GET -Headers $headers -TimeoutSec 2 -ErrorAction Stop
         if ($resp.StatusCode -eq 200) {
             $apiOk = $true
             Write-Host "  [OK]   ApiServer responded HTTP $($resp.StatusCode)"

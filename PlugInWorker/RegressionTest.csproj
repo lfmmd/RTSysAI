@@ -38,6 +38,8 @@
     <!-- AiService 是 partial class，工具分发在 AiTools.cs，必须带上全部 Ai*.cs 分部文件 -->
     <Compile Include="Ai*.cs" />
     <Compile Include="ProgramWorkspace.cs" />
+    <Compile Include="BasEncoding.cs" />
+    <Compile Include="ProgramBackup.cs" />
     <Compile Include="DispatcherHelper.cs" />
     <Compile Include="PlugInLog.cs" />
     <Compile Include="Lang.cs" />

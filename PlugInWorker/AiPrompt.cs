@@ -174,7 +174,7 @@ Use markdown sections. Keep each section under 5 lines. Whole file under 1500 to
 Review the program(s) named in the task for bugs, risks, and quality issues, then write a SEVERITY-RANKED review report. You are not the main agent — do not rewrite code, do not fix issues, do not call write tools (they are blocked anyway). Only diagnose and report.
 
 ## Tools available (read-only)
-read_source (read the target program in full), search_code (find usages/patterns across all programs), get_iec_task_detail / read_iec_variables (IEC structure + variables), lookup_command (verify a command's correct usage to judge whether the code uses it correctly), list_programs, list_axes, read_vr, read_sysvar, get_status.
+read_source (read the target program in full), search_code (find usages/patterns across all programs), lookup_command (verify a command's correct usage to judge whether the code uses it correctly), list_programs, list_axes, read_vr, get_status.
 
 ## Review discipline
 1. Read the target program(s) fully first. Skim related programs only if the code calls them.
@@ -196,7 +196,7 @@ If nothing is found at a level, write 'None'. Quote the offending line verbatim.
 Diagnose the runtime problem described in the task (axis won't move, error report, unexpected behavior, etc.) by combining LIVE controller state with source code, then write a ROOT-CAUSE diagnosis. You are not the main agent — do not fix or modify anything, do not call write tools (they are blocked anyway).
 
 ## Tools available (read-only) — prefer LIVE state first
-get_status (connection/firmware), list_axes + get_axis_detail (axis type/state/positions/errors), read_vr / read_sysvar / read_table (variable values), list_processes + get_process_variable (what is running and its runtime values), get_events (recent error/state events), read_drive_param (drive fault codes), scan_ethercat / read_ethercat_sdo (fieldbus faults), then read_source to read the suspected program.
+get_status (connection/firmware), list_axes + get_axis_detail (axis type/state/positions/errors), read_vr / read_table (variable values), then read_source to read the suspected program.
 
 ## Diagnostic discipline
 1. Start from the symptom in the task. Gather the relevant LIVE state FIRST (axis state, VR/TABLE values, running processes, recent events/faults) — do not theorize before seeing actual numbers.
@@ -220,7 +220,7 @@ If you cannot determine the cause, say so and list the next checks. Keep under ~
 Survey the project BROADLY to answer 'what is here / where is X / how is this structured', then write a FINDINGS INDEX. You are not the main agent — do not deep-dive any single command (that is research's job), do not modify anything, do not call write tools (they are blocked anyway).
 
 ## Tools available (read-only)
-list_programs / list_project_items (what programs/items exist), read_source (skim each program's top — just enough for a one-line summary, do NOT read every line), search_code (find where a symbol/pattern is used across all programs), lookup_command (brief, to name commands you see), get_iec_task_detail (IEC structure overview), get_status, list_axes, list_processes.
+list_programs / list_project_items (what programs/items exist), read_source (skim each program's top — just enough for a one-line summary, do NOT read every line), search_code (find where a symbol/pattern is used across all programs), lookup_command (brief, to name commands you see), get_status, list_axes.
 
 ## Exploration discipline
 1. Start broad: list_programs / list_project_items to see the whole project. For 'where is X' tasks, lead with search_code.
@@ -245,7 +245,7 @@ Independently verify whether a program the main agent just wrote/modified is COR
 The task names the program(s) to verify and usually includes: the source (or a program name to read), and any compile result the main agent already obtained. Treat a provided compile result as part of your verdict — if it shows compile errors, that alone is FAIL. You do NOT recompile; you read the code and cross-check it.
 
 ## Tools available (read-only)
-read_source (read the target program in full), get_iec_task_detail / read_iec_variables (IEC structure + variables), search_code (find usages/patterns), lookup_command (verify a command's real syntax — judge whether the code uses it correctly), and LIVE-state cross-checks: get_status, list_axes, read_vr, read_sysvar, read_table, list_processes, get_process_variable, get_events (does the runtime state match what the code assumes?).
+read_source (read the target program in full), search_code (find usages/patterns), lookup_command (verify a command's real syntax — judge whether the code uses it correctly), and LIVE-state cross-checks: get_status, list_axes, read_vr, read_table (does the runtime state match what the code assumes?).
 
 ## Verification discipline
 1. Read the target program(s) fully first.
@@ -271,7 +271,7 @@ Keep under ~2000 tokens. No narration; verdict first, then evidence.";
 Investigate the assigned task using read-only tools, then write a CONCISE, ACTIONABLE conclusion. You are not the main agent — do not write code, do not propose plans, do not call write tools (they are blocked anyway).
 
 ## Tools available (read-only)
-lookup_command (command/keyword docs — TWO TIERS: first full=false for name+signature+description; only call full=true if that summary is insufficient to extract what the task needs), read_source (program source), read_skill, discover_skills, search_code, get_status, list_programs, read_iec_variables, get_iec_task_detail, read_vr, read_table, read_sysvar, list_axes, get_axis_detail, list_processes, get_process_variable, read_drive_param, scan_ethercat, read_ethercat_sdo, and other read/list tools.
+lookup_command (command/keyword docs — TWO TIERS: first full=false for name+signature+description; only call full=true if that summary is insufficient to extract what the task needs), read_source (program source), read_skill, discover_skills, search_code, get_status, list_programs, list_project_items, read_vr, read_table, list_axes, get_axis_detail, read_drive_param, read_ethercat_sdo, list_plugins, controller_status.
 
 ## Investigation discipline
 1. Go straight to the specific commands/files named in the task. Start broad (list_programs / get_status) only if you don't know where to look.
@@ -333,8 +333,16 @@ Keep the conclusion under ~2000 tokens. Quote exact syntax verbatim from docs �
                 var sb = new StringBuilder();
                 sb.AppendLine("## Current Environment");
 
-                // Use RTSysHandlers to get status and project info
-                var statusResult = RTSysHandlers.GetStatus();
+                // 当前打开的 RTSys 项目目录（. zpj 所在目录，含 .bas 程序）。
+                var projectDir = ProgramWorkspace.ProjectDir;
+                if (!string.IsNullOrEmpty(projectDir))
+                    sb.AppendLine("- Project Directory: " + projectDir);
+
+                // 仅在已有活动连接时查询详细状态。
+                // GetStatus 在“已配置 IP 但未连接”时会走完整连接链
+                // （ZMC_SearchAndOpenEth / ZMC_SearchEth / ZMC_OpenEth），这些同步调用无超时，
+                // 会让每轮对话在发 API 请求前卡死。
+                var statusResult = RTSysHandlers.HasLiveConnection ? RTSysHandlers.GetStatus() : null;
                 var statusDict = statusResult as Dictionary<string, object>;
 
                 if (statusDict != null)
@@ -380,8 +388,11 @@ Keep the conclusion under ~2000 tokens. Quote exact syntax verbatim from docs �
                     sb.AppendLine("- Project: No project loaded");
                 }
 
-                // Program list from RTSysHandlers
-                var programsResult = RTSysHandlers.ListPrograms();
+                // Program list from RTSysHandlers（仅活动连接时查询；未连接时跳过，
+                // 避免 ListPrograms 在已配置 IP 时触发阻塞式连接）
+                object programsResult = RTSysHandlers.HasLiveConnection
+                    ? RTSysHandlers.ListPrograms()
+                    : RTSysHandlers.ListOfflinePrograms();
                 var programsDict = programsResult as Dictionary<string, object>;
                 if (programsDict != null && programsDict.TryGetValue("items", out var itemsObj))
                 {

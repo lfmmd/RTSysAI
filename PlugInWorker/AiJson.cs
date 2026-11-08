@@ -1,10 +1,26 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 
 namespace RTSys.PlugIn
 {
+    /// <summary>
+    /// JavaScriptSerializer 会把单引号转义成 '，导致工具结果/HTTP 响应里出现
+    /// 肉眼可见的“u0027”。单引号在 JSON 字符串中无需转义，这里统一还原。
+    /// </summary>
+    internal static class JsonText
+    {
+        private static readonly Regex EscapedApostrophe =
+            new Regex(@"(?<!\\)\\u0027", RegexOptions.Compiled);
+
+        public static string UnescapeApostrophes(string json)
+        {
+            return string.IsNullOrEmpty(json) ? json : EscapedApostrophe.Replace(json, "'");
+        }
+    }
+
     internal partial class AiService
     {
         // ---- JSON Helpers ----
@@ -30,8 +46,20 @@ namespace RTSys.PlugIn
             if (val == null) return "null";
             if (val is string s) return "\"" + EscapeJson(s) + "\"";
             if (val is bool b) return b ? "true" : "false";
-            if (val is int || val is long || val is double || val is float || val is decimal)
-                return val.ToString();
+            // 数字必须用 InvariantCulture，否则德语/法语区域会输出 "0,5"，产生非法 JSON。
+            if (val is int i) return i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (val is long l) return l.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (val is double d)
+            {
+                if (double.IsNaN(d) || double.IsInfinity(d)) return "null";
+                return d.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            if (val is float f)
+            {
+                if (float.IsNaN(f) || float.IsInfinity(f)) return "null";
+                return f.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            if (val is decimal m) return m.ToString(System.Globalization.CultureInfo.InvariantCulture);
             if (val is Dictionary<string, object> dict)
             {
                 var sb = new StringBuilder();
@@ -67,7 +95,26 @@ namespace RTSys.PlugIn
         private static string EscapeJson(string s)
         {
             if (s == null) return "";
-            return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
+            var sb = new StringBuilder(s.Length + 8);
+            foreach (char c in s)
+            {
+                switch (c)
+                {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '"': sb.Append("\\\""); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    default:
+                        // 其余 U+0000–U+001F 控制字符必须转义，否则生成非法 JSON。
+                        if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4"));
+                        else sb.Append(c);
+                        break;
+                }
+            }
+            return sb.ToString();
         }
 
         private static string GetStringValue(Dictionary<string, object> dict, string key)

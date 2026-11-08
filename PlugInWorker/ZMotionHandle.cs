@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Threading.Tasks;
@@ -25,7 +25,7 @@ namespace RTSys.PlugIn
         /// <summary>
         /// 创建并连接（工厂方法）
         /// </summary>
-        public static async Task<ZMotionHandle> ConnectAsync(string ip, int type = 2, int timeoutMs = 5000)
+        public static async Task<ZMotionHandle> ConnectAsync(string ip, int timeoutMs = 5000)
         {
             var handle = new ZMotionHandle();
             IntPtr h = IntPtr.Zero;
@@ -53,8 +53,8 @@ namespace RTSys.PlugIn
                 int.TryParse(portName.Substring(3), out portNum);
 
             var handle = new ZMotionHandle();
-            // 先设置默认波特率
-            int result = await Task.Run(() => ZMotionAPI.ZMC_SetComDefaultBaud(portNum, baudRate));
+            // 先设置默认串口参数：真实签名为 (baudRate, byteSize, parity, stopBits)，无端口参数。
+            int result = await Task.Run(() => ZMotionAPI.ZMC_SetComDefaultBaud((uint)baudRate, 8, 0, 1));
             if (result != ZMotionErrors.SUCCESS && result != ZMotionErrors.ERR_NOT_SUPPORTED)
                 ZMotionErrors.ThrowIfError(result, $"SetComDefaultBaud {portName}");
 

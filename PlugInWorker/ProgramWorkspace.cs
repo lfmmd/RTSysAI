@@ -98,16 +98,10 @@ namespace RTSys.PlugIn
             return null;
         }
 
-        /// <summary>读取文本文件：优先 UTF-8（含 BOM），失败回退 GBK（RTSys 项目 .bas 常用编码）。</summary>
+        /// <summary>读取文本文件：按实际字节检测 UTF-8 BOM / UTF-8 / GBK。</summary>
         private static string ReadTextAuto(string path)
         {
-            var bytes = File.ReadAllBytes(path);
-            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
-                return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
-            try { return new UTF8Encoding(false, true).GetString(bytes); }
-            catch (DecoderFallbackException) { }
-            try { return Encoding.GetEncoding(ProjectCodePage).GetString(bytes); }
-            catch { return Encoding.Default.GetString(bytes); }
+            return BasEncoding.Decode(File.ReadAllBytes(path));
         }
 
         /// <summary>从窗口标题取当前项目文件名（如 TestPro.zpj），取不到返回 null。</summary>
@@ -332,7 +326,36 @@ namespace RTSys.PlugIn
             }
         }
 
-        /// <summary>在项目目录新建 .bas（GBK）并加入 .zpj 的 [FileList]；成功返回 null。</summary>
+        /// <summary>当前项目 .bas 的物理路径；不存在返回 null。</summary>
+        public static string GetProjectProgramPath(string name)
+        {
+            if (ValidateProgramName(name) != null) return null;
+            var dir = ProjectDir;
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
+            lock (_lock) { return FindProjectProgramPath(dir, name); }
+        }
+
+        /// <summary>当前项目 .zpj 的物理路径；不存在返回 null。</summary>
+        public static string GetProjectFilePath()
+        {
+            var dir = ProjectDir;
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
+            try
+            {
+                var zpjName = DetectProjectFileNameFromTitle();
+                if (!string.IsNullOrEmpty(zpjName))
+                {
+                    var p = ResolveInside(dir, zpjName);
+                    if (p != null && File.Exists(p)) return p;
+                }
+                var files = Directory.GetFiles(dir, "*.zpj");
+                if (files.Length == 0) return null;
+                return files.OrderByDescending(File.GetLastWriteTimeUtc).First();
+            }
+            catch { return null; }
+        }
+
+        /// <summary>在项目目录新建 .bas（按 basEncoding 策略）并加入 .zpj 的 [FileList]；成功返回 null。</summary>
         public static string CreateProjectProgram(string name, string source)
         {
             var error = ValidateProgramName(name);
@@ -353,7 +376,7 @@ namespace RTSys.PlugIn
 
                     var path = ResolveInside(dir, name + ".bas");
                     if (path == null) return "Invalid program path: " + name;
-                    WriteGbkFile(path, source);
+                    WriteProjectTextFile(path, source);
                     try
                     {
                         model.Entries.Add(new ZpjEntry { FileName = name + ".bas", FileType = 1 });
@@ -387,7 +410,7 @@ namespace RTSys.PlugIn
                 {
                     var path = FindProjectProgramPath(dir, name);
                     if (path == null) return "Program not found: " + name;
-                    WriteGbkFile(path, source);
+                    WriteProjectTextFile(path, source);
                     return null;
                 }
                 catch (Exception ex)
@@ -826,9 +849,10 @@ namespace RTSys.PlugIn
             return null;
         }
 
-        private static void WriteGbkFile(string path, string source)
+        private static void WriteProjectTextFile(string path, string source)
         {
-            File.WriteAllBytes(path, Encoding.GetEncoding(ProjectCodePage).GetBytes(source ?? ""));
+            // 已有文件保持原编码；新文件按 basEncoding 配置（auto = ANSI/GBK）。
+            File.WriteAllBytes(path, BasEncoding.EncodeForWrite(path, source ?? ""));
         }
 
         /// <summary>按 .zpj 清单（优先）或根目录定位项目 .bas；找不到返回 null。</summary>

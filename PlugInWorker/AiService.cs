@@ -17,7 +17,6 @@ namespace RTSys.PlugIn
         internal static readonly string DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RTSysAI");
         internal static readonly string ConfigPath = Path.Combine(DataDir, "config.json");
         private static readonly string HistoryDir = Path.Combine(DataDir, "chat_history");
-        private static readonly string BackupDir = Path.Combine(DataDir, "backups");
         private static readonly string SkillsDir = Path.Combine(DataDir, "skills");
         private static readonly string PromptsDir = Path.Combine(SkillsDir, "prompts");
         // 打包源提示词目录（DLL 同级 skills/prompts）—— DataDir 未部署时兜底，保证开箱即用。
@@ -102,7 +101,7 @@ namespace RTSys.PlugIn
             _http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
             LoadConfig();
             Directory.CreateDirectory(HistoryDir);
-            Directory.CreateDirectory(BackupDir);
+            Directory.CreateDirectory(ProgramBackup.BackupDirectory);
             Directory.CreateDirectory(DataDir);
             try { Directory.CreateDirectory(MemoryDir); } catch { }
             MigrateHistoryFromTrioAI();
@@ -152,27 +151,6 @@ namespace RTSys.PlugIn
             // No-op: kept for compatibility, not used with RTSys
         }
 
-        // ---- Backup ----
-
-        private void BackupSource(string programName)
-        {
-            try
-            {
-                var result = RTSysHandlers.ReadSource(programName);
-                var srcObj = result as Dictionary<string, object>;
-                if (srcObj == null) return;
-                object sourceCode;
-                if (!srcObj.TryGetValue("sourceCode", out sourceCode) || sourceCode == null) return;
-
-                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                var backupName = $"{programName}_{timestamp}.bak";
-                var backupPath = Path.Combine(BackupDir, backupName);
-                File.WriteAllText(backupPath, sourceCode.ToString());
-                OnToolStatus?.Invoke(Lang.L($"已备份: {backupName}", $"Backup saved: {backupName}"));
-            }
-            catch { }
-        }
-
         // ---- Agentic Loop ----
 
         private const int MaxTurns = 50;
@@ -183,8 +161,10 @@ namespace RTSys.PlugIn
         private const int LoopDetectThreshold = 3;
         // thinking 指纹长度（前 N 字）。中文 thinking 前 120 字相同即可判定逐字重复。
         private const int ThinkingFingerprintLen = 120;
-        // chars (≈100K tokens). 历史超此阈值时强制 TrimHistory；仍超则提示开新会话。
-        private const int TokenBudgetLimit = 400_000;
+        // 统一上下文预算（tokens）。EstimateHistoryTokens() 返回 chars/4，两处阈值共用此常量：
+        // 历史达到预算时触发 TrimHistory/自动压缩；压缩后仍超则提示开新会话。
+        internal const int ContextTokenBudget = 100_000;
+        private const int TokenBudgetLimit = ContextTokenBudget;
 
         // 循环检测状态：text 与 thinking 各自的上一轮指纹 + 连续相同计数。
         private struct LoopState
@@ -247,6 +227,7 @@ namespace RTSys.PlugIn
 
         public void Chat(string userMessage, CancellationToken ct = default)
         {
+            try { PlugInLog.Log($"AI Chat 开始: len={userMessage?.Length ?? 0}, hasKey={HasApiKey}, model={_model}, url={_apiUrl}"); } catch { }
             if (!HasApiKey)
             {
                 OnSystemMessage?.Invoke(Lang.L("未配置 API Key。点击[设置]配置。",
@@ -273,6 +254,7 @@ namespace RTSys.PlugIn
 
             // 供 research 工具透传取消令牌（ExecuteTool 无 ct 参数）
             _currentCancellationToken = ct;
+            _subagentDispatchesThisTurn = 0;
 
             if (string.IsNullOrEmpty(_currentSessionId))
                 _currentSessionId = DateTime.Now.ToString("yyyyMMdd_HHmmss");
@@ -573,6 +555,8 @@ namespace RTSys.PlugIn
 
         // Cache hit monitoring: log every 5 turns
         private int _callTurnCounter = 0;
+        // 每条用户消息内允许派发的子 agent 次数上限（防止 verify/research 反复派发导致长时间不返回）
+        private int _subagentDispatchesThisTurn;
 
         private StreamResult CallApiStream(CancellationToken ct)
         {
@@ -666,7 +650,8 @@ namespace RTSys.PlugIn
             {
                 try
                 {
-                    OnSystemMessage?.Invoke(string.Format(
+                    // 只写日志，不占用聊天区（面板状态栏已显示 In/Out 统计）。
+                    PlugInLog.Log(string.Format(
                         "[Cache Monitor] Turn {0}: cache_read={1}, cache_create={2}, input={3}, output={4}",
                         _callTurnCounter, result.CacheReadTokens, result.CacheCreateTokens, result.InputTokens, result.OutputTokens));
                 }
@@ -740,6 +725,7 @@ namespace RTSys.PlugIn
             request.Content = content;
 
             System.Net.Http.HttpResponseMessage response = null;
+            try { PlugInLog.Log("发送 AI 请求: " + request.RequestUri + " model=" + model); } catch { }
             try
             {
                 response = _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).GetAwaiter().GetResult();
@@ -763,6 +749,7 @@ namespace RTSys.PlugIn
                 return null;
             }
 
+            try { PlugInLog.Log("AI 响应 HTTP " + (int)response.StatusCode); } catch { }
             if (!response.IsSuccessStatusCode)
             {
                 var errText = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -1180,6 +1167,20 @@ namespace RTSys.PlugIn
                     {
                         var sr = GetStringValue(delta, "stop_reason");
                         if (!string.IsNullOrEmpty(sr)) result.StopReason = sr;
+                    }
+                    // Anthropic 流式协议：最终 output_tokens（以及部分提供方的缓存统计）
+                    // 在 message_delta.usage 中返回，message_start 里通常为 0。
+                    var usage = GetDictValue(evt, "usage");
+                    if (usage != null)
+                    {
+                        int outTok = GetIntValue(usage, "output_tokens");
+                        if (outTok > 0) result.OutputTokens = outTok;
+                        int inTok = GetIntValue(usage, "input_tokens");
+                        if (inTok > 0) result.InputTokens = inTok;
+                        int cr = GetIntValue(usage, "cache_read_input_tokens");
+                        if (cr > 0) result.CacheReadTokens = cr;
+                        int cc = GetIntValue(usage, "cache_creation_input_tokens");
+                        if (cc > 0) result.CacheCreateTokens = cc;
                     }
                     break;
                 }

@@ -274,9 +274,22 @@ namespace RTSys.PlugIn
                     // 已声明的变量名跳过
                     if (dimVars.Contains(ident)) continue;
 
-                    // 若是保留字但未在白名单中允许作标识符，报错
+                    // 若是保留字但未在白名单中允许作标识符，报错。
+                    // 但要排除“命令/函数调用”的合法用法，否则 MOVE(...) / STOP 会被误判。
                     if (tokenNames.Contains(upperIdent))
                     {
+                        int after = id.Index + id.Length;
+                        while (after < line.Length && char.IsWhiteSpace(line[after])) after++;
+
+                        // 1) 函数/命令调用：标识符后紧跟 '('
+                        if (after < line.Length && line[after] == '(') continue;
+
+                        // 2) 语句开头的无参数命令（STOP / RUN / END 等）：
+                        //    该标识符是本行第一个 token，且后面不是赋值 '='。
+                        bool firstToken = line.Substring(0, id.Index).Trim().Length == 0;
+                        if (firstToken && (after >= line.Length || line[after] != '='))
+                            continue;
+
                         errors.Add($"Line {lineNo}: 标识符 '{ident}' 与系统保留字冲突");
                     }
                 }

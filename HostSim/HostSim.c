@@ -99,7 +99,7 @@ static void PreTranslateMessage_plugin(void* pPlugin)
 
 int main(int argc, char** argv)
 {
-    const char* dllPath = "C:\\Users\\LFMMD\\Desktop\\RTSys\\Plug_in\\AIPlugin\\RTSysPlugInNative.dll";
+    const char* dllPath = "RTSysPlugInNative.dll";
     if (argc > 1) dllPath = argv[1];
 
     HMODULE hMod = LoadLibraryA(dllPath);

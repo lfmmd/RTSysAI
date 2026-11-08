@@ -58,6 +58,16 @@ msbuild <插件目录>\PlugInAdapter\PlugInAdapter.csproj /p:Configuration=Relea
 ```
 RTSys 启动时会遍历 `Plug_in\` 目录，`AfxLoadLibrary` 加载并按 `GetProcAddress("PlugIn_*")` 调用。
 
+### 4. 生成 RTBasic 帮助库（可选，建议）
+
+RTBasic 命令参考库由本机 RTSys 自带的帮助文档生成，生成物不纳入版本控制：
+
+```
+python tools/build_rtbasic_skills.py --src "<RTSys安装目录>\help\RTBasic"
+```
+
+输出到 `PlugInWorker/skills/rtbasic/zh/`（已加入 `.gitignore`）。未生成时插件仍可运行，只是命令查询只能使用内置提示词。
+
 ## 关键设计决策
 
 ### 为什么用 C++/CLI shim 而不是 DllExport？

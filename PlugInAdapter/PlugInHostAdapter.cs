@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Web.Script.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -31,12 +34,17 @@ internal static class FakeCWnd
     [DllImport("kernel32.dll")]
     private static extern bool FlushInstructionCache(IntPtr hProcess, IntPtr lpBaseAddress, uint dwSize);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool VirtualProtect(IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
+
     [DllImport("kernel32.dll")]
     private static extern IntPtr GetCurrentProcess();
 
     private const uint MEM_COMMIT = 0x1000;
     private const uint MEM_RESERVE = 0x2000;
     private const uint PAGE_EXECUTE_READWRITE = 0x40;
+    private const uint PAGE_EXECUTE_READ = 0x20;
     private const uint MEM_RELEASE = 0x8000;
 
     // stub: xor eax, eax; ret 4   (__thiscall BOOL 成员函数，1 个 stack 参数，返回 FALSE)
@@ -45,12 +53,15 @@ internal static class FakeCWnd
     /// <summary>分配“假 CWnd”块，返回块地址（即宿主应收到的 CWnd*）。失败返回 IntPtr.Zero。</summary>
     public static IntPtr Allocate(IntPtr hwnd)
     {
+        // 该布局按 32 位指针设计；x64 下 vtable 与 stub 的偏移不成立，直接拒绝。
+        if (IntPtr.Size != 4) return IntPtr.Zero;
+
         const int blockSize = 0x300;
         IntPtr block = VirtualAlloc(IntPtr.Zero, (uint)blockSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
         if (block == IntPtr.Zero) return IntPtr.Zero;
 
         IntPtr vtable = new IntPtr(block.ToInt64() + 0x100); // vtable 放在块内
-        IntPtr stub = new IntPtr(block.ToInt64() + 0x200);   // stub 码放在块内末尾
+        IntPtr stub = new IntPtr(block.ToInt64() + 0x280);   // stub 码放在 vtable 之后（70×4 结束于 +0x218）
 
         // 写 stub 码并刷新指令缓存（DEP 下执行前必需）
         Marshal.Copy(s_nullStub, 0, stub, s_nullStub.Length);
@@ -63,6 +74,10 @@ internal static class FakeCWnd
         // 假 CWnd 对象字段
         Marshal.WriteIntPtr(block, 0x00, vtable); // vptr
         Marshal.WriteIntPtr(block, 0x20, hwnd);   // m_hWnd
+
+        // 写入完成后降为只读+可执行，避免宿主/第三方改写 vtable 或 stub。
+        uint oldProtect;
+        VirtualProtect(block, (UIntPtr)blockSize, PAGE_EXECUTE_READ, out oldProtect);
 
         return block;
     }
@@ -189,11 +204,15 @@ namespace RTSys.PlugIn
         private static readonly object _staticLock = new object();
         private static PlugInHostAdapter _instance;
         private static GCHandle _instanceHandle;
+        // 进程内 HTTP API（可选，enableHttpApi=true 时启用），在宿主启动调用导出时即启动，
+        // 不依赖 AI 面板是否打开。
+        private static ApiServer _httpServer;
+        private static readonly object _httpLock = new object();
 
         private readonly object _lock = new object();
         private bool _isInitialized;
         private bool _isDisposed;
-        private IntPtr _hostContext = IntPtr.Zero;
+        protected IntPtr _hostContext = IntPtr.Zero;
         private IntPtr _pluginWindow = IntPtr.Zero;
         // 宿主把 PlugIn_Create 返回值当作 MFC CWnd* 使用，取 [+0x20] 作为 m_hWnd。
         // 我们自己分配的“假 CWnd”内存块，其 +0x20 存放真实 HWND，在 PlugIn_Destroy 时释放。
@@ -235,6 +254,7 @@ namespace RTSys.PlugIn
                     // 分配 GCHandle 防止托管实例被 GC 回收
                     _instanceHandle = GCHandle.Alloc(_instance);
                     Trace.WriteLine("[PlugIn] 适配器已创建, handle=0x" + GCHandle.ToIntPtr(_instanceHandle).ToString("X"));
+                    EnsureHttpApiStarted();
                 }
                 return _instance;
             }
@@ -270,7 +290,42 @@ namespace RTSys.PlugIn
                     _instanceHandle.Free();
                 }
                 _instance = null;
+                StopHttpApi();
                 Trace.WriteLine("[PlugIn] 适配器已释放");
+            }
+        }
+
+        /// <summary>
+        /// 在宿主启动调用插件导出（PlugIn_GetHandle / SetDockBar / SetAutoSize）时启动 HTTP API。
+        /// 这样即使 AI 面板未打开，外部工具/自动化也能调用 /api/programs、/api/status 等路由。
+        /// 仅当 config.json 的 enableHttpApi=true 或环境变量 RTSYS_AI_HTTP=1 时启用。
+        /// </summary>
+        internal static void EnsureHttpApiStarted()
+        {
+            if (!RTSysPlugInAdapterImpl.HttpApiEnabled()) return;
+            lock (_httpLock)
+            {
+                if (_httpServer != null) return;
+                try
+                {
+                    var server = new ApiServer();
+                    server.Start();
+                    _httpServer = server;
+                    PlugInLog.Log("EnsureHttpApiStarted() ApiServer.Start() OK on port " + server.Port);
+                }
+                catch (Exception ex)
+                {
+                    PlugInLog.LogException("EnsureHttpApiStarted", ex);
+                }
+            }
+        }
+
+        internal static void StopHttpApi()
+        {
+            lock (_httpLock)
+            {
+                try { _httpServer?.Stop(); } catch { }
+                _httpServer = null;
             }
         }
 
@@ -321,6 +376,10 @@ namespace RTSys.PlugIn
 
         public void OnDispose()
         {
+            // 即使插件未完成初始化（例如只挂上了 WndProc 钩子），也必须恢复宿主窗口过程，
+            // 否则宿主继续运行时会调用到已卸载程序集中的托管委托。
+            try { RTSysProjectModel.Shutdown(); } catch { }
+
             bool needUiCleanup = false;
             lock (_lock)
             {
@@ -343,9 +402,11 @@ namespace RTSys.PlugIn
                     _pluginWindow = IntPtr.Zero;
                     needUiCleanup = true;
                     // 释放“假 CWnd”内存块（宿主在 PlugIn_Destroy 之后即 AfxFreeLibrary，不再解引用）
+                    // 必须用 VirtualFree 释放：该块由 FakeCWnd.Allocate 的 VirtualAlloc 分配，
+                    // 用 Marshal.FreeHGlobal 释放会破坏进程堆（0xc0000374）。
                     if (_fakeCWndBlock != IntPtr.Zero)
                     {
-                        Marshal.FreeHGlobal(_fakeCWndBlock);
+                        FakeCWnd.Free(_fakeCWndBlock);
                         _fakeCWndBlock = IntPtr.Zero;
                     }
                 }
@@ -977,7 +1038,7 @@ namespace RTSys.PlugIn
                 // 4) 释放旧 FakeCWnd 内存块（宿主已不再引用该块）
                 if (_fakeCWndBlock != IntPtr.Zero)
                 {
-                    try { Marshal.FreeHGlobal(_fakeCWndBlock); } catch { }
+                    try { FakeCWnd.Free(_fakeCWndBlock); } catch { }
                     _fakeCWndBlock = IntPtr.Zero;
                 }
                 _pluginWindow = IntPtr.Zero;
@@ -999,15 +1060,14 @@ namespace RTSys.PlugIn
     /// <summary>
     /// RTSys 插件实现：把 TrioAI 业务接到 RTSys 宿主桥接层。
     ///
-    /// 接线（任务要求）：
+    /// 接线（单进程模式）：
     /// - CreateViewCore() → new ChatPanel()
-    /// - InitializeCore() → new ApiServer().Start()
-    /// - DisposeCore()    → ApiServer.Stop()
+    /// - ChatPanel 直接调用进程内 AiService.Chat()，不经过 HTTP
+    /// - HTTP API 默认关闭；config.json 的 enableHttpApi=true（或环境变量 RTSYS_AI_HTTP=1）
+    ///   时在宿主进程内启动 ApiServer，供外部工具/自动化调用 /api/programs 等路由。
     /// </summary>
     public class RTSysPlugInAdapterImpl : PlugInHostAdapter
     {
-        private ApiServer _server;
-
         public RTSysPlugInAdapterImpl()
         {
         }
@@ -1015,31 +1075,42 @@ namespace RTSys.PlugIn
         protected override void InitializeCore()
         {
             base.InitializeCore();
-            try
-            {
-                _server = new ApiServer();
-                _server.Start();
-                PlugInLog.Log("InitializeCore() ApiServer.Start() OK on port " + _server.Port);
-            }
-            catch (Exception ex)
-            {
-                PlugInLog.LogException("InitializeCore (ApiServer.Start)", ex);
-                Trace.WriteLine("[PlugIn] 启动 HTTP 服务异常: " + ex);
-            }
+            // HTTP API 已在 GetOrCreate() 中随宿主启动导出一起启动（由 HttpApiEnabled 控制），
+            // 不依赖 AI 面板是否打开，此处不重复启动。
         }
 
         protected override void DisposeCore()
         {
+            try { RTSysProjectModel.Shutdown(); } catch { }
+            base.DisposeCore();
+        }
+
+        /// <summary>
+        /// HTTP API 开关：环境变量优先，其次 config.json 的 enableHttpApi。
+        /// 默认关闭，避免普通使用时的端口占用/对外暴露。
+        /// </summary>
+        internal static bool HttpApiEnabled()
+        {
             try
             {
-                _server?.Stop();
-                _server = null;
+                if (Environment.GetEnvironmentVariable("RTSYS_AI_HTTP") == "1") return true;
+
+                var cfgPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "RTSysAI", "config.json");
+                if (!File.Exists(cfgPath)) return false;
+
+                var cfg = new JavaScriptSerializer()
+                    .Deserialize<Dictionary<string, object>>(File.ReadAllText(cfgPath));
+                object val;
+                if (cfg != null && cfg.TryGetValue("enableHttpApi", out val))
+                {
+                    bool b;
+                    if (bool.TryParse(val?.ToString(), out b)) return b;
+                }
             }
-            catch (Exception ex)
-            {
-                Trace.WriteLine("[PlugIn] 停止 HTTP 服务异常: " + ex);
-            }
-            base.DisposeCore();
+            catch { }
+            return false;
         }
 
         protected override FrameworkElement CreateViewCore()
@@ -1048,14 +1119,26 @@ namespace RTSys.PlugIn
             try
             {
                 var view = new ChatPanel();
-                // 宿主目前未提供可读取主题色的接口，直接使用与 RTSys 深色风格接近的兜底主题。
-                // ApplyTheme 内部已 try/catch，失败仅写日志，不影响视图创建。
+                // 尝试从宿主获取主题色，使插件 UI 随宿主浅色/深色主题自动切换。
+                // RTSys.exe 导出 Scope_GetMainThemeColor / ECAT_GetMainThemeColor / ZHMI_GetMainThemeColor。
+                // 宿主目前未提供公开托管接口，故通过 P/Invoke GetProcAddress 在宿主进程
+                // 中查找并调用；失败则回退深色兜底。
                 try
                 {
-                    view.ApplyTheme(
-                        System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E),
-                        System.Windows.Media.Color.FromRgb(0xF0, 0xF0, 0xF0),
-                        System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD7));
+                    System.Windows.Media.Color bg, fg, ac;
+                    if (TryGetHostThemeColors(_hostContext, out bg, out fg, out ac))
+                    {
+                        view.ApplyTheme(bg, fg, ac);
+                        PlugInLog.Log("CreateViewCore() ApplyTheme 使用宿主主题色: bg=(" + bg.R + "," + bg.G + "," + bg.B + ")");
+                    }
+                    else
+                    {
+                        view.ApplyTheme(
+                            System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E),
+                            System.Windows.Media.Color.FromRgb(0xF0, 0xF0, 0xF0),
+                            System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD7));
+                        PlugInLog.Log("CreateViewCore() ApplyTheme 使用兜底深色主题（未从宿主读取到主题色）");
+                    }
                 }
                 catch (Exception themeEx)
                 {
@@ -1078,6 +1161,147 @@ namespace RTSys.PlugIn
                 return new SimpleFallbackPanel();
             }
         }
+
+        #region ---- 宿主主题色读取 ----
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+        /// <summary>
+        /// 宿主主题色函数指针签名（x86 __cdecl）：
+        ///   bool GetMainThemeColor(COLORREF* outColor, int index)
+        ///
+        /// COLORREF 在 Win32 中是 0x00BBGGRR 的 DWORD（低字节 R）。index 取不同槽位：
+        /// 0=背景、1=前景、2=强调色（依据 ZmotionCad3/ZHMI 插件 ABI 惯例，具体取值以运行时为准）。
+        /// 某个槽位取不到时函数返回 false，调用方使用兜底值。
+        /// </summary>
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int GetMainThemeColor_t(IntPtr pBgColor, IntPtr pFgColor, IntPtr pAccentColor);
+
+        /// <summary>宿主导出的主题色函数名（按优先级尝试）。
+        /// 注意：这些函数分布在不同的 DLL 中，且导出名为 C++ 装饰名（mangled name）。
+        ///   Scope_GetMainThemeColor -> ExtRTSysScope.dll   -> ?Scope_GetMainThemeColor@@YAHKKK@Z
+        ///   ECAT_GetMainThemeColor -> ExtRTSysEtherCAT.dll -> ?ECAT_GetMainThemeColor@@YAHKKK@Z
+        ///   ZHMI_GetMainThemeColor -> ZHmiEx.dll          -> ?ZHMI_GetMainThemeColor@@YAHPAPAK00@Z
+        /// 签名均为 x86 __cdecl：
+        ///   bool GetMainThemeColor(COLORREF* outColor, int index)  返回 0/1
+        /// COLORREF (0x00BBGGRR) 通过 out uint 返回。index: 0=背景, 1=前景, 2=强调色。
+        /// </summary>
+        private static readonly (string DllName, string MangledName)[] HostThemeColorExports =
+        {
+            ("ExtRTSysScope.dll",   "?Scope_GetMainThemeColor@@YAHKKK@Z"),
+            ("ExtRTSysEtherCAT.dll", "?ECAT_GetMainThemeColor@@YAHKKK@Z"),
+            ("ZHmiEx.dll",          "?ZHMI_GetMainThemeColor@@YAHPAPAK00@Z"),
+        };
+
+        /// <summary>宿主主题色槽位：背景 / 前景 / 强调色。</summary>
+        private const int ThemeSlotBackground = 0;
+        private const int ThemeSlotForeground = 1;
+        private const int ThemeSlotAccent = 2;
+
+        /// <summary>
+        /// 从宿主进程读取当前主题色（背景 / 前景 / 强调色）。
+        ///
+        /// RTSys.exe 导出三个同名函数：Scope_GetMainThemeColor / ECAT_GetMainThemeColor /
+        /// ZHMI_GetMainThemeColor。插件加载在宿主进程内，可直接 GetProcAddress 拿到函数指针调用。
+        ///
+        /// 签名（x86 __cdecl，参考 ZmotionCad3 / ZHMI 插件 ABI）：
+        ///   bool GetMainThemeColor(COLORREF* outColor, int index)
+        ///
+        /// COLORREF 在 Win32 中是 0x00BBGGRR 的 DWORD（低字节 R）。index 取不同槽位：
+        /// 0=背景、1=前景、2=强调色（依据 ZmotionCad3/ZHMI 插件 ABI 惯例，具体取值以运行时为准）。
+        /// 某个槽位取不到时函数返回 false，调用方使用兜底值。
+        /// </summary>
+        protected virtual bool TryGetHostThemeColors(
+            IntPtr hostContext,
+            out System.Windows.Media.Color background,
+            out System.Windows.Media.Color foreground,
+            out System.Windows.Media.Color accent)
+        {
+            background = System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E);
+            foreground = System.Windows.Media.Color.FromRgb(0xF0, 0xF0, 0xF0);
+            accent = System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD7);
+
+            try
+            {
+                // 插件被宿主 AfxLoadLibrary 加载，与宿主同进程。
+                // 主题色函数分布在宿主及其依赖 DLL 中，遍历加载并按装饰名查找。
+                GetMainThemeColor_t getThemeColor = null;
+                string usedExport = null;
+                string usedDll = null;
+                foreach (var (dllName, mangledName) in HostThemeColorExports)
+                {
+                    IntPtr mod = GetModuleHandle(dllName);
+                    if (mod == IntPtr.Zero) continue;
+                    IntPtr fn = GetProcAddress(mod, mangledName);
+                    if (fn == IntPtr.Zero) continue;
+                    getThemeColor = Marshal.GetDelegateForFunctionPointer<GetMainThemeColor_t>(fn);
+                    usedExport = mangledName;
+                    usedDll = dllName;
+                    break;
+                }
+                if (getThemeColor == null)
+                {
+                    PlugInLog.Log("TryGetHostThemeColors: 宿主未导出任何 GetMainThemeColor");
+                    return false;
+                }
+
+                PlugInLog.Log("TryGetHostThemeColors: 使用 " + usedDll + "!" + usedExport);
+
+                // Allocate memory for the three COLORREF output parameters
+                IntPtr pBg = Marshal.AllocHGlobal(4);
+                IntPtr pFg = Marshal.AllocHGlobal(4);
+                IntPtr pAc = Marshal.AllocHGlobal(4);
+                try
+                {
+                    int result = getThemeColor(pBg, pFg, pAc);
+                    if (result == 0)
+                    {
+                        PlugInLog.Log("TryGetHostThemeColors: 宿主主题色接口返回失败 (0)");
+                        return false;
+                    }
+                    uint bgRef = (uint)Marshal.ReadInt32(pBg);
+                    uint fgRef = (uint)Marshal.ReadInt32(pFg);
+                    uint acRef = (uint)Marshal.ReadInt32(pAc);
+
+                    background = ColorRefToColor(bgRef);
+                    foreground = ColorRefToColor(fgRef);
+                    accent = ColorRefToColor(acRef);
+
+                    PlugInLog.Log(string.Format(
+                        "TryGetHostThemeColors: bg=({0},{1},{2}) fg=({3},{4},{5}) accent=({6},{7},{8})",
+                        background.R, background.G, background.B,
+                        foreground.R, foreground.G, foreground.B,
+                        accent.R, accent.G, accent.B));
+                    return true;
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(pBg);
+                    Marshal.FreeHGlobal(pFg);
+                    Marshal.FreeHGlobal(pAc);
+                }
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("TryGetHostThemeColors", ex);
+                return false;
+            }
+        }
+
+        /// <summary>Win32 COLORREF (0x00BBGGRR) → WPF Color。</summary>
+        private static System.Windows.Media.Color ColorRefToColor(uint colorRef)
+        {
+            byte r = (byte)(colorRef & 0xFF);
+            byte g = (byte)((colorRef >> 8) & 0xFF);
+            byte b = (byte)((colorRef >> 16) & 0xFF);
+            return System.Windows.Media.Color.FromRgb(r, g, b);
+        }
+
+        #endregion
 
         /// <summary>最小化的 fallback 视图：不依赖外部宿主程序集，仅用于验证嵌入链路。</summary>
         private sealed class SimpleFallbackPanel : System.Windows.Controls.UserControl

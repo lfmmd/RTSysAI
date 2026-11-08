@@ -13,7 +13,7 @@ import shutil
 import sys
 import winreg
 
-RTSYS_DIR = r"%USERPROFILE%\Desktop\RTSys"
+RTSYS_DIR = os.environ.get("RTSYS_DIR", os.path.expandvars(r"%USERPROFILE%\Desktop\RTSys"))
 KEY_PATH = r"Software\RTSys Application 1.0\RTSys\Plugin"
 
 MODULE_NAME = "AIPlugin"
@@ -21,7 +21,7 @@ DLL_NAME = "RTSysPlugInNative.dll"
 MENU_NAME = "AI 插件"
 MENU_PROMPT = "AI 助手插件"
 
-PROJECT_DEPLOY = r"%USERPROFILE%\Desktop\works\motion perfect\TrioAI_RTSys\deploy\PlugInNative"
+PROJECT_DEPLOY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "deploy", "PlugInNative")
 RUNTIME_DEPS = [
     "RTSysPlugInNative.dll",
     "RTSysPlugInAdapter.dll",

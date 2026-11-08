@@ -1,4 +1,4 @@
----
+﻿---
 name: safe-coding
 description: 安全运动编程规范（RTBasic/RTSys）—— 避免死锁、安全停止、轴错误处理。
 ---
@@ -32,7 +32,7 @@ WHILE AXISEMG_IN = 0       ' 等待到位
         PRINT "Move timeout on axis 0"
         RETURN
     ENDIF
-    PAUSE 10                  ' 让出 CPU，避免空转
+    ' 不要使用 PAUSE：官方明确 PAUSE 仅限 PC 软件调用，BASIC 程序中使用会导致整个程序停止。
 WEND
 
 IF MOTION_ERROR <> 0 THEN
@@ -40,6 +40,11 @@ IF MOTION_ERROR <> 0 THEN
     PRINT "Motion error detected"
 ENDIF
 ```
+
+## 回零指令（重要）
+
+- RTBasic **没有 `HOME` 指令**；回零使用 `DATUM(mode)`（mode+10 = 碰到限位后反找）。
+- 回零前务必确认 `DATUM_IN` 原点开关已配置、方向正确，首跑低速并准备急停。
 
 ## 运行前检查清单
 

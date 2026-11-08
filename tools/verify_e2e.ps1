@@ -17,9 +17,9 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$RTSysPath = '%USERPROFILE%\Desktop\RTSys\RTSys.exe',
+    [string]$RTSysPath = (Join-Path $env:USERPROFILE 'Desktop\RTSys\RTSys.exe'),
     [string]$PluginLog = (Join-Path $env:APPDATA 'RTSysAI\plugin.log'),
-    [string]$ShimLog = '%USERPROFILE%\Desktop\RTSys\Plug_in\AIPlugin\shim_diag.log',
+    [string]$ShimLog = (Join-Path $env:USERPROFILE 'Desktop\RTSys\Plug_in\AIPlugin\shim_diag.log'),
     [int]$ActivationTimeoutSeconds = 120,
     [string]$HostName = 'localhost'
 )

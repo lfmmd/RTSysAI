@@ -210,14 +210,22 @@ namespace RTSys.PlugIn
                 if (HasLiveConnection)
                     return _handle;
 
-                // 按优先级尝试各种连接方式
-                var attempts = new List<Func<Task<ZMotionHandle>>>
+                // 按优先级尝试各种连接方式。
+                // RTSys 进程内运行时，宿主可能占用搜索通道（日志常见“设备忙”）；
+                // 已配置静态 IP 时优先直连，搜索作为兜底。
+                var attempts = new List<Func<Task<ZMotionHandle>>>();
+                if (!string.IsNullOrEmpty(GetRTSysIpFromConfig()))
                 {
-                    TryConnectSearchAndOpenEth,   // 1. SearchAndOpenEth（搜索并直接连接）
-                    TryConnectSearchEthThenOpen,  // 2. SearchEth 发现 IP 再 OpenEth
-                    TryConnectStaticIp,           // 3. 静态配置 IP
-                    TryConnectSimulator           // 4. 仿真器
-                };
+                    attempts.Add(TryConnectStaticIp);
+                    attempts.Add(TryConnectSearchAndOpenEth);
+                    attempts.Add(TryConnectSearchEthThenOpen);
+                }
+                else
+                {
+                    attempts.Add(TryConnectSearchAndOpenEth);
+                    attempts.Add(TryConnectSearchEthThenOpen);
+                }
+                attempts.Add(TryConnectSimulator);
 
                 Exception lastError = null;
                 foreach (var attempt in attempts)
@@ -844,8 +852,19 @@ namespace RTSys.PlugIn
             public string LastSyncedUtc;
         }
 
+        /// <summary>允许 AI/HTTP 传入带 .bas 的程序名；统一去掉扩展名，避免误入控制器兜底路径。</summary>
+        private static string NormalizeProgramName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return name;
+            var n = name.Trim();
+            if (n.EndsWith(".bas", StringComparison.OrdinalIgnoreCase))
+                n = n.Substring(0, n.Length - 4).Trim();
+            return n;
+        }
+
         public static object ReadSource(string name, Dictionary<string, object> body = null)
         {
+            name = NormalizeProgramName(name);
             return Safe(async () =>
             {
                 string source;
@@ -876,9 +895,14 @@ namespace RTSys.PlugIn
                     }
                     else
                     {
-                        // 本地缓存未命中：若控制器已连接，从控制器拉取并缓存到本地；
-                        // 否则返回友好的控制器不可用错误（不抛异常）。
+                        // 本地缓存未命中：若控制器已连接，先在控制器程序清单中确认存在，
+                        // 再拉取并缓存；不存在时返回明确错误，避免落入上传兜底产生误导信息。
                         var handle = await GetHandleAsync();
+                        var controllerNames = await handle.ListProgramsAsync();
+                        bool existsOnController = controllerNames != null &&
+                            controllerNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+                        if (!existsOnController)
+                            return Error($"程序不存在：{name}（编辑器/工程/本地缓存/控制器均未找到）");
                         source = await handle.ReadProgramAsync(name);
                         ProgramWorkspace.WriteLocalSource(name, source);
                         ProgramWorkspace.MarkSynced(name);
@@ -947,8 +971,9 @@ namespace RTSys.PlugIn
             });
         }
 
-        public static object WriteSource(string name, Dictionary<string, object> body)
+        public static object WriteSource(string name, Dictionary<string, object> body, bool skipBackup = false)
         {
+            name = NormalizeProgramName(name);
             if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
 
             return Safe(() =>
@@ -957,6 +982,18 @@ namespace RTSys.PlugIn
                 var validationErrors = ValidateRtBasicCode(sourceCode);
                 if (validationErrors.Count > 0)
                     return Error("BLOCKED by RTBasic validation:\n  " + string.Join("\n  ", validationErrors));
+
+                string backupFile = null;
+                string backupError = null;
+                string projectBackup = null;
+                if (!skipBackup)
+                {
+                    var bk = ProgramBackup.BackupProgramSource(name, "write");
+                    backupFile = bk.File;
+                    backupError = bk.Error;
+                    if (bk.SourceExisted && bk.Error != null)
+                        return Error("备份失败，已取消写入: " + bk.Error);
+                }
 
                 // 优先：文件当前在 RTSys 编辑器中打开 → 写入编辑器并让宿主自己保存。
                 // 这样编辑器立即刷新，且宿主负责 UTF-8 → GBK 落盘。
@@ -972,6 +1009,9 @@ namespace RTSys.PlugIn
                         savedLocally = true,
                         downloadedToController = false,
                         pendingUpload = true,
+                        backup = backupFile,
+                        backupError = backupError,
+                        projectBackup = projectBackup,
                         message = $"程序 '{name}' 已写入 RTSys 编辑器，并由 RTSys 保存到磁盘；本地缓存已更新。"
                     };
                 }
@@ -987,6 +1027,12 @@ namespace RTSys.PlugIn
                     }
                     else
                     {
+                        if (!skipBackup)
+                        {
+                            var pb = ProgramBackup.BackupProjectFile("write-create");
+                            projectBackup = pb.ProjectFile;
+                            if (pb.Error != null) return Error("工程文件备份失败，已取消写入: " + pb.Error);
+                        }
                         writeError = ProgramWorkspace.CreateProjectProgram(name, sourceCode);
                         created = true;
                     }
@@ -1001,6 +1047,9 @@ namespace RTSys.PlugIn
                         savedLocally = true,
                         downloadedToController = false,
                         pendingUpload = true,
+                        backup = backupFile,
+                        backupError = backupError,
+                        projectBackup = projectBackup,
                         message = created
                             ? $"程序 '{name}' 已创建并加入项目，同时更新本地缓存。"
                             : $"程序 '{name}' 已写入项目文件，同时更新本地缓存。"
@@ -1018,6 +1067,9 @@ namespace RTSys.PlugIn
                     source = "local",
                     origin = "local",
                     pendingUpload = true,
+                    backup = backupFile,
+                    backupError = backupError,
+                    projectBackup = projectBackup,
                     message = $"程序 '{name}' 已保存到本地缓存（离线编辑）。尚未下载到控制器；连接后再执行下载以生效。"
                 };
             });
@@ -1025,6 +1077,7 @@ namespace RTSys.PlugIn
 
         public static object CompileProgram(string name)
         {
+            name = NormalizeProgramName(name);
             return Safe(async () =>
             {
                 var handle = await GetHandleAsync();
@@ -1693,6 +1746,7 @@ namespace RTSys.PlugIn
 
         public static object PatchSource(string name, Dictionary<string, object> body)
         {
+            name = NormalizeProgramName(name);
             if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
             var ops = GetArray(body, "operations");
             if (ops == null || ops.Length == 0) return Error("operations is required");
@@ -1747,6 +1801,11 @@ namespace RTSys.PlugIn
                     currentSource = currentSource.Substring(0, pos) + op.newString + currentSource.Substring(pos + op.oldString.Length);
                 }
 
+                // 写前备份当前源码；备份失败则取消补丁（避免不可回滚的修改）。
+                var backup = ProgramBackup.BackupProgramSource(name, "patch");
+                if (backup.SourceExisted && backup.Error != null)
+                    return Error("备份失败，已取消补丁: " + backup.Error);
+
                 // 写回同一来源，并同步更新本地缓存。
                 if (fromEditor)
                 {
@@ -1769,6 +1828,7 @@ namespace RTSys.PlugIn
                     downloadedToController = false,
                     source = fromEditor ? "editor" : (fromProject ? "project" : "local"),
                     pendingUpload = true,
+                    backup = backup.File,
                     message = fromEditor
                         ? $"程序 '{name}' 的补丁已写入 RTSys 编辑器，并由 RTSys 保存到磁盘。"
                         : (fromProject
@@ -1786,8 +1846,9 @@ namespace RTSys.PlugIn
 
         public static object CopyProgram(string name, Dictionary<string, object> body)
         {
+            name = NormalizeProgramName(name);
             if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
-            var newName = GetString(body, "newName");
+            var newName = NormalizeProgramName(GetString(body, "newName"));
             if (string.IsNullOrWhiteSpace(newName)) return Error("newName is required");
             if (string.Equals(name, newName, StringComparison.OrdinalIgnoreCase))
                 return Error("源程序名与目标程序名相同");
@@ -1803,8 +1864,13 @@ namespace RTSys.PlugIn
 
             bool copiedToProject = false;
             bool internalProjectModel = false;
+            string projectBackup = null;
             if (inProject)
             {
+                var pb = ProgramBackup.BackupProjectFile("copy");
+                projectBackup = pb.ProjectFile;
+                if (pb.Error != null) return Error("工程文件备份失败，已取消复制: " + pb.Error);
+
                 var copyError = ProgramWorkspace.CopyProjectProgram(name, newName);
                 if (copyError != null) return Error(copyError);
                 copiedToProject = true;
@@ -1829,6 +1895,7 @@ namespace RTSys.PlugIn
                 copiedToProject,
                 internalProjectModel,
                 copiedLocally,
+                projectBackup = projectBackup,
                 projectPath = copiedToProject ? GetProjectProgramPath(newName) : null,
                 message = $"程序 '{name}' 已复制为 '{newName}'。"
             };
@@ -1838,21 +1905,31 @@ namespace RTSys.PlugIn
         {
             return Safe(() =>
             {
-                var progName = GetString(body, "name") ?? "";
+                var progName = NormalizeProgramName(GetString(body, "name") ?? "");
                 if (string.IsNullOrWhiteSpace(progName))
                     return Error("程序名不能为空");
 
-                // 不允许创建同名程序（项目或本地缓存）。
-                if (ProgramWorkspace.ReadLocalSource(progName) != null)
+                // 有项目时只拒绝项目内同名程序；本地缓存中的同名旧程序可以被新工程程序覆盖
+                //（缓存是跨工程共享的，旧工程的同名缓存不应阻塞当前工程新建）。
+                if (ProgramWorkspace.IsProjectAvailable)
+                {
+                    if (ProgramWorkspace.ProjectProgramExists(progName))
+                        return Error($"程序 '{progName}' 已存在（项目中）");
+                }
+                else if (ProgramWorkspace.ReadLocalSource(progName) != null)
+                {
                     return Error($"程序 '{progName}' 已存在（本地缓存中）");
-                if (ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(progName))
-                    return Error($"程序 '{progName}' 已存在（项目中）");
+                }
 
                 var source = GetString(body, "sourceCode") ?? GetDefaultProgramSource(progName);
 
                 // 有打开项目：创建程序并加入 .zpj，同时写入本地缓存。
                 if (ProgramWorkspace.IsProjectAvailable)
                 {
+                    var projectBackupResult = ProgramBackup.BackupProjectFile("create");
+                    if (projectBackupResult.Error != null)
+                        return Error("工程文件备份失败，已取消新建: " + projectBackupResult.Error);
+
                     var createError = ProgramWorkspace.CreateProjectProgram(progName, source);
                     if (createError != null) return Error(createError);
 
@@ -1872,6 +1949,7 @@ namespace RTSys.PlugIn
                         savedLocally = true,
                         internalProjectModel,
                         pendingUpload = true,
+                        projectBackup = projectBackupResult.ProjectFile,
                         message = internalProjectModel
                             ? $"程序 '{progName}' 已创建并加入工程（工程树已同步），同时保存到本地缓存。"
                             : $"程序 '{progName}' 已创建并加入项目文件，同时保存到本地缓存。"
@@ -1900,12 +1978,10 @@ namespace RTSys.PlugIn
             return $@"'{progName} - 新建程序
 ' 自动生成于 {DateTime.Now:yyyy-MM-dd HH:mm:ss}
 
-SPEED(100)
-ACCEL(500)
-DECEL(500)
-
-MOVEABS(0, 0)
-HOME(0)
+BASE(0)
+SPEED = 100
+ACCEL = 500
+DECEL = 500
 
 END
 ";
@@ -1913,12 +1989,26 @@ END
 
         public static object DeleteProgram(string name)
         {
+            name = NormalizeProgramName(name);
             if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
 
             bool inProject = ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(name);
             bool inLocal = ProgramWorkspace.ReadLocalSource(name) != null;
             if (!inProject && !inLocal)
                 return Error($"程序 '{name}' 不存在（项目和本地缓存均未找到）");
+
+            // 删除不可逆：源码与工程文件必须备份成功，否则取消删除。
+            var backup = ProgramBackup.BackupProgramSource(name, "delete");
+            if (backup.SourceExisted && backup.Error != null)
+                return Error("备份失败，已取消删除: " + backup.Error);
+
+            string projectBackup = null;
+            if (inProject)
+            {
+                var pb = ProgramBackup.BackupProjectFile("delete");
+                projectBackup = pb.ProjectFile;
+                if (pb.Error != null) return Error("工程文件备份失败，已取消删除: " + pb.Error);
+            }
 
             bool internalProjectModel = false;
             if (inProject)
@@ -1950,6 +2040,8 @@ END
                 deletedFromProject = inProject,
                 deletedLocally = inLocal,
                 internalProjectModel,
+                backup = backup.File,
+                projectBackup = projectBackup,
                 message = internalProjectModel
                     ? $"程序 '{name}' 已通过 RTSys 工程模型删除（工程树与 .zpj 同步更新）。"
                     : (inProject && inLocal
@@ -1962,8 +2054,9 @@ END
 
         public static object RenameProgram(string name, Dictionary<string, object> body)
         {
+            name = NormalizeProgramName(name);
             if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
-            var newName = GetString(body, "newName");
+            var newName = NormalizeProgramName(GetString(body, "newName"));
             if (string.IsNullOrWhiteSpace(newName)) return Error("newName is required");
             var newNameError = ProgramWorkspace.ValidateProgramName(newName);
             if (newNameError != null) return Error(newNameError);
@@ -1978,6 +2071,18 @@ END
             if (ProgramWorkspace.ReadLocalSource(newName) != null ||
                 (ProgramWorkspace.IsProjectAvailable && ProgramWorkspace.ProjectProgramExists(newName)))
                 return Error($"程序 '{newName}' 已存在");
+
+            var backup = ProgramBackup.BackupProgramSource(name, "rename");
+            if (backup.SourceExisted && backup.Error != null)
+                return Error("备份失败，已取消重命名: " + backup.Error);
+
+            string projectBackup = null;
+            if (inProject)
+            {
+                var pb = ProgramBackup.BackupProjectFile("rename");
+                projectBackup = pb.ProjectFile;
+                if (pb.Error != null) return Error("工程文件备份失败，已取消重命名: " + pb.Error);
+            }
 
             bool renamedInProject = false;
             bool internalProjectModel = false;
@@ -2018,6 +2123,8 @@ END
                 renamedInProject,
                 internalProjectModel,
                 renamedLocally,
+                backup = backup.File,
+                projectBackup = projectBackup,
                 projectPath = renamedInProject ? GetProjectProgramPath(newName) : null,
                 message = $"程序 '{name}' 已重命名为 '{newName}'。"
             };
@@ -2035,6 +2142,7 @@ END
 
         public static object OpenProgram(string name)
         {
+            name = NormalizeProgramName(name);
             if (string.IsNullOrWhiteSpace(name)) return Error("程序名不能为空");
             if (!ProgramWorkspace.IsProjectAvailable)
                 return Error("OpenProgram not supported on RTSys (no editor integration).");

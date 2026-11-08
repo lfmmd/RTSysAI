@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -14,18 +14,29 @@ namespace RTSys.PlugIn
         private const int MaxHistoryKeep = 100;
         private const int MaxRecentKeep = 30;
         private const int MaxToolResultLen = 16000;
+        // lookup_command full=true 的文档可能很大（如 DATUM 74K）；安全关键参数表不能被 16K 截断。
+        private const int MaxLookupResultLen = 96 * 1024;
         // microCompact：旧 tool_result 的 content 替换为占位符，保留 tool_use_id 不破坏配对
         private const int MaxRecentToolResults = 5;
         private const string ClearedToolResult = "[Old tool result content cleared]";
-        // auto-compaction：利用模型上下文窗口的大部分空间，而非硬截断。
-        // 500K chars ≈ 125K tokens — 对于 200K context 的模型留出足够空间给 system + tools + output。
-        private const int HistoryTokenBudget = 500000;
+        // auto-compaction 与 Chat 主循环共用同一个 tokens 预算（AiService.ContextTokenBudget）。
+        private const int HistoryTokenBudget = ContextTokenBudget;
         // 条数触发的 token 下限：count > MaxHistoryKeep 但 tokens 低于此值时不压缩。
         // 小历史（如十几K tokens / 百余条短消息）不该触发昂贵的压缩流程；
         // 真正要控的是「条数多 + token 也已显著增长」的历史，避免压缩失败时硬截断丢上下文。
         private const int CountTriggerTokenFloor = 100000;
 
         private void TrimHistory()
+        {
+            // CompactHistory 的锁契约要求调用者持有 _historyLock（内部会 Monitor.Exit/Enter）。
+            lock (_historyLock)
+            {
+                TrimHistoryLocked();
+            }
+        }
+
+        /// <summary>调用者必须持有 _historyLock。</summary>
+        private void TrimHistoryLocked()
         {
             int estTokens = EstimateHistoryTokens();
             int count = _conversationHistory.Count;
@@ -566,8 +577,9 @@ namespace RTSys.PlugIn
                             else
                             {
                                 var c = GetStringValue(tb, "content");
-                                if (c != null && c.Length > MaxToolResultLen)
-                                    tb["content"] = SmartTruncate(c, MaxToolResultLen);
+                                int limit = (id != null && lookupQueryById.ContainsKey(id)) ? MaxLookupResultLen : MaxToolResultLen;
+                                if (c != null && c.Length > limit)
+                                    tb["content"] = SmartTruncate(c, limit);
                             }
                             trimmedBlocks.Add(tb);
                         }

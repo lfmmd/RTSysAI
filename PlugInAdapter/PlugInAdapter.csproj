@@ -44,12 +44,10 @@
     <Compile Include="PlugInAbi.cs" />
     <Compile Include="PlugInHostAdapter.cs" />
     <Compile Include="PlugInNativeExports.cs" />
-    <Compile Include="PluginRuntime.cs" />
     <!-- UI 相关：ChatPanel 留在宿主进程 -->
     <Compile Include="ChatPanel.cs" />
     <!-- PlugInLog / DispatcherHelper / ApiServer 由 PlugInWorker 程序集提供，此处不重复编译 -->
     <!-- Worker 进程生命周期管理（预留，当前单进程模式下不启用） -->
-    <Compile Include="PlugInWorkerLauncher.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="skills\**" CopyToOutputDirectory="PreserveNewest" />

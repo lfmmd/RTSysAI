@@ -64,23 +64,24 @@ namespace RTSys.PlugIn
                 var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var sigs = new Dictionary<string, CommandSignature>(StringComparer.OrdinalIgnoreCase);
 
-                // 1. 从 index.json 加载 TrioBASIC 条目（仅 triobasic 目录）
+                // 1. 从 index.json 加载 RTBasic 条目（仅 rtbasic 目录）
                 foreach (var entry in LoadIndex())
                 {
                     if (string.IsNullOrEmpty(entry?.Name)) continue;
-                    if (!string.Equals(entry.Lib, "triobasic", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!string.Equals(entry.Lib, "rtbasic", StringComparison.OrdinalIgnoreCase)) continue;
                     ids.Add(entry.Name);
                     var sig = ParseSignature(entry.Name, entry.Sig ?? entry.Desc ?? "");
                     if (sig != null) sigs[entry.Name] = sig;
                 }
 
-                // 2. 扫描 skills/triobasic/ 下所有 .html 文件名（兜底 index.json 不全的情况，如关键字 IF/FOR/DIM）
-                //    注意：仅扫 triobasic 目录。IEC/PLCopen 的库（AO-printf 之类）不能混进 TrioBASIC 白名单，
-                //    否则 AI 写 printf() 这种 IEC 函数会被误判为合法 TrioBASIC。
-                var triobasicDir = Path.Combine(SkillsDir, "triobasic", _useChineseDocs ? "zh" : "en");
-                if (Directory.Exists(triobasicDir))
+                // 2. 扫描 skills/rtbasic/{zh,en} 下所有 .html 文件名（兜底 index.json 不全的情况，如关键字 IF/FOR/DIM）
+                //    注意：仅扫 rtbasic 目录。IEC/PLCopen 的库（AO-printf 之类）不能混进 RTBasic 白名单，
+                //    否则 AI 写 printf() 这种 IEC 函数会被误判为合法 RTBasic。
+                foreach (var lang in new[] { "zh", "en" })
                 {
-                    foreach (var html in Directory.GetFiles(triobasicDir, "*.html"))
+                    var rtbasicDir = Path.Combine(SkillsDir, "rtbasic", lang);
+                    if (!Directory.Exists(rtbasicDir)) continue;
+                    foreach (var html in Directory.GetFiles(rtbasicDir, "*.html"))
                     {
                         var name = Path.GetFileNameWithoutExtension(html);
                         // 仅纳入合法 identifier 名（字母数字下划线，>=2 字符）
@@ -153,11 +154,19 @@ namespace RTSys.PlugIn
                 sig.MaxArgs = 0;
                 return;
             }
-            // TrioBASIC 文档的可选参数形式："axis0[, axis1[, axis2[, ...]]]"
-            // 第一个 '[' 之前的是必填，之后的全部可选。
+            // TrioBASIC 文档的可选参数有两种形式：
+            //   "axis0[, axis1[, ...]]"   方括号
+            //   "axis<, second axis>..."  尖括号（如 BASE(axis<,second axis>...)）
+            // 第一个 '[' 或 '<' 之前的是必填，之后的全部可选。
             int bracketIdx = argsStr.IndexOf('[');
-            string requiredPart = bracketIdx >= 0 ? argsStr.Substring(0, bracketIdx) : argsStr;
-            bool hasOptional = bracketIdx >= 0 || argsStr.Contains("...");
+            int angleIdx = argsStr.IndexOf('<');
+            int cut = -1;
+            if (bracketIdx >= 0 && angleIdx >= 0) cut = Math.Min(bracketIdx, angleIdx);
+            else if (bracketIdx >= 0) cut = bracketIdx;
+            else if (angleIdx >= 0) cut = angleIdx;
+
+            string requiredPart = cut >= 0 ? argsStr.Substring(0, cut) : argsStr;
+            bool hasOptional = cut >= 0 || argsStr.Contains("...");
 
             var parts = requiredPart.Split(',');
             int required = 0;
@@ -192,11 +201,22 @@ namespace RTSys.PlugIn
             new Regex(@"'[^\r\n]*$", RegexOptions.Multiline | RegexOptions.Compiled);
         private static readonly Regex _reFuncCallSite =
             new Regex(@"\b([A-Za-z_][A-Za-z_0-9]*)\s*\(([^)]*)\)", RegexOptions.Compiled);
+        // 用户自定义 SUB 声明（行首 SUB name / GLOBAL SUB name，可带参数括号）；调用点不能被当作未知命令。
+        // 必须按行匹配：用 \s+ 会跨过换行，把 "END SUB\nSUB Next" 的第二个 SUB 关键字当成名字吞掉。
+        private static readonly Regex _reSubDef =
+            new Regex(@"^[ \t]*(?:GLOBAL[ \t]+)?SUB[ \t]+([A-Za-z_][A-Za-z_0-9]*)",
+                RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
 
         public static object ValidateTrioBasicCodePublic(string code)
         {
             var errs = ValidateTrioBasicCode(code);
             return new { ok = errs.Count == 0, errors = errs };
+        }
+
+        /// <summary>与 validate_basic 相同的权威校验，供写入前拦截复用，避免两套规则互相矛盾。</summary>
+        public static List<string> ValidateTrioBasicCodeErrors(string code)
+        {
+            return ValidateTrioBasicCode(code);
         }
 
         private static List<string> ValidateTrioBasicCode(string code)
@@ -210,6 +230,9 @@ namespace RTSys.PlugIn
             var lines = clean.Split('\n');
             var unknown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var seen = new HashSet<string>();
+            var userSubs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match m in _reSubDef.Matches(clean))
+                userSubs.Add(m.Groups[1].Value);
 
             for (int i = 0; i < lines.Length; i++)
             {
@@ -218,6 +241,9 @@ namespace RTSys.PlugIn
                 {
                     var funcName = m.Groups[1].Value;
                     var argsStr = m.Groups[2].Value;
+
+                    // 用户自定义 SUB：调用签名由用户代码决定，不按参考库校验
+                    if (userSubs.Contains(funcName)) continue;
 
                     // 已知函数 → 走签名校验
                     if (_signatures != null && _signatures.TryGetValue(funcName, out var sig))

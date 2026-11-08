@@ -104,7 +104,7 @@ EXCEPTION in EnsureUiThread() UI thread start: 值不能为 null。参数名: wi
 1. 双击 `%USERPROFILE%\Desktop\RTSys\RTSys.exe` 启动宿主。
 2. 在 RTSys 界面点击「AI 插件」菜单，等待插件面板出现（懒加载，脚本无法代替点击）。
 3. 确认 `%APPDATA%\RTSysAI\plugin.log` 出现 `Create() OK hwnd=`。
-4. 运行：`python "%USERPROFILE%\Desktop\works\motion perfect\TrioAI_RTSys\tools\api_probe.py"`。
+4. 运行：`python "<repo>\tools\api_probe.py"`。
 5. 若需要机器可读结果：追加 `--json`。
 6. 也可使用 `tools\verify_e2e.ps1` 自动停止/启动 RTSys、提示点击菜单、轮询激活并调用探测脚本，日志写入 `tools\verify_e2e.log`。
 

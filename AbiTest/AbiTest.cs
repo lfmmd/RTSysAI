@@ -73,7 +73,11 @@ internal static class AbiTest
     [return: MarshalAs(UnmanagedType.I1)]
     private delegate bool VCall69_t(IntPtr pThis, IntPtr pMsg);
 
-    private const uint MEM_COMMIT = 0x1000, MEM_RESERVE = 0x2000, PAGE_EXECUTE_READWRITE = 0x40, MEM_RELEASE = 0x8000;
+    private const uint MEM_COMMIT = 0x1000, MEM_RESERVE = 0x2000, PAGE_EXECUTE_READWRITE = 0x40, PAGE_EXECUTE_READ = 0x20, MEM_RELEASE = 0x8000;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool VirtualProtect(IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
 
     // stub: xor eax,eax; ret 4  → 返回 FALSE 的 __thiscall 成员函数
     private static readonly byte[] s_nullStub = { 0x33, 0xC0, 0xC2, 0x04, 0x00 };
@@ -81,21 +85,26 @@ internal static class AbiTest
     /// <summary>与插件 FakeCWnd.Allocate 完全一致的分配逻辑。</summary>
     private static IntPtr AllocateFakeCWnd(IntPtr hwnd)
     {
+        if (IntPtr.Size != 4) return IntPtr.Zero;
         const int blockSize = 0x300;
         IntPtr block = VirtualAlloc(IntPtr.Zero, (uint)blockSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
         if (block == IntPtr.Zero) return IntPtr.Zero;
         IntPtr vtable = new IntPtr(block.ToInt64() + 0x100);
-        IntPtr stub = new IntPtr(block.ToInt64() + 0x200);
+        IntPtr stub = new IntPtr(block.ToInt64() + 0x280);
         Marshal.Copy(s_nullStub, 0, stub, s_nullStub.Length);
         FlushInstructionCache(GetCurrentProcess(), stub, (uint)s_nullStub.Length);
         for (int i = 0; i < 70; i++) Marshal.WriteIntPtr(vtable, i * IntPtr.Size, stub);
         Marshal.WriteIntPtr(block, 0x00, vtable);
         Marshal.WriteIntPtr(block, 0x20, hwnd);
+        uint old;
+        VirtualProtect(block, (UIntPtr)blockSize, PAGE_EXECUTE_READ, out old);
         return block;
     }
 
-    private static int Main()
+    private static int Main(string[] args)
     {
+        bool runRaw = args != null && Array.IndexOf(args, "--raw") >= 0;
+
         // 真实插件窗口（模拟 HwndSource 产生的子窗口）
         IntPtr parent = GetDesktopWindow();
         IntPtr hwnd = CreateWindowExA(0, "STATIC", "PluginWin",
@@ -103,14 +112,15 @@ internal static class AbiTest
         Console.WriteLine("real plugin HWND = 0x" + hwnd.ToString("X"));
         Console.WriteLine();
 
-        // ---- 组合 A/E：宿主期望裸 HWND 的情形（当前插件的旧行为）----
-        RunCase("组合 A/E: 返回裸 HWND (0x" + hwnd.ToString("X") + ")", hwnd);
-
         // ---- 组合 D：返回“假 CWnd”块（+0x20 = HWND, +0 = vtable）----
         IntPtr block = AllocateFakeCWnd(hwnd);
         RunCase("组合 D: 返回假 CWnd 块 (0x" + block.ToString("X") + ")", block);
-
         VirtualFree(block, 0, MEM_RELEASE);
+
+        // ---- 组合 A/E：宿主期望裸 HWND 的情形（旧行为，预期崩溃；需 --raw 显式开启）----
+        if (runRaw)
+            RunCase("组合 A/E: 返回裸 HWND (0x" + hwnd.ToString("X") + ")", hwnd);
+
         return 0;
     }
 
@@ -150,8 +160,19 @@ internal static class AbiTest
             Marshal.StructureToPtr(msg, pMsg, false);
             VCall69_t vcall = (VCall69_t)Marshal.GetDelegateForFunctionPointer(fn69, typeof(VCall69_t));
             bool vret = vcall(pPlugin, pMsg);
-            Marshal.FreeHGlobal(pMsg);
             Console.WriteLine("  F) PreTranslateMessage vcall OK -> " + vret);
+
+            // 全槽扫描：逐个调用 70 个 slot，确认没有槽位被 stub 字节覆盖
+            int sweepOk = 0;
+            for (int i = 0; i < 70; i++)
+            {
+                IntPtr fn = Marshal.ReadIntPtr(vptr, i * IntPtr.Size);
+                var call = (VCall69_t)Marshal.GetDelegateForFunctionPointer(fn, typeof(VCall69_t));
+                call(pPlugin, pMsg);
+                sweepOk++;
+            }
+            Marshal.FreeHGlobal(pMsg);
+            Console.WriteLine("  G) vtable 全槽调用 OK -> " + sweepOk + "/70");
 
             Console.WriteLine("  => PASS (no crash)\n");
         }

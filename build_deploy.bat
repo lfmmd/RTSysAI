@@ -1,10 +1,10 @@
 @echo off
 REM ============================================================================
-REM build_deploy.bat â€”â€” ä¸€é”®ç¼–è¯‘ + éƒ¨ç½² RTSys æ’ä»¶
+REM build_deploy.bat ¡ª¡ª Ò»¼ü±àÒë + ²¿Êð RTSys ²å¼þ
 REM
-REM ç”¨æ³•:
-REM   build_deploy.bat              ä»…ç¼–è¯‘
-REM   build_deploy.bat deploy       ç¼–è¯‘å¹¶éƒ¨ç½²åˆ° RTSys å®‰è£…ç›®å½•
+REM ÓÃ·¨:
+REM   build_deploy.bat              ½ö±àÒë
+REM   build_deploy.bat deploy       ±àÒë²¢²¿Êðµ½ RTSys °²×°Ä¿Â¼
 REM ============================================================================
 setlocal enabledelayedexpansion
 
@@ -13,20 +13,20 @@ set "ADAPTER_DIR=%PROJECT_ROOT%PlugInAdapter"
 set "SHIM_DIR=%PROJECT_ROOT%PlugInNativeShim"
 set "WORKER_DIR=%PROJECT_ROOT%PlugInWorker"
 
-REM RTSys å®‰è£…ç›®å½•ï¼ˆæŒ‰éœ€ä¿®æ”¹ï¼‰
-set "RTSYS_DIR=%USERPROFILE%\Desktop\RTSys"
-set "DEPLOY_MODULE=TrioAI"
+REM RTSys °²×°Ä¿Â¼£¨°´ÐèÐÞ¸Ä£©
+if not defined RTSYS_DIR set "RTSYS_DIR=%USERPROFILE%\Desktop\RTSys"
+set "DEPLOY_MODULE=AIPlugin"
 set "DEPLOY_PATH=%RTSYS_DIR%\Plug_in\%DEPLOY_MODULE%"
 
 echo ============================================================
-echo  RTSys æ’ä»¶æž„å»º
+echo  RTSys ²å¼þ¹¹½¨
 echo ============================================================
 echo.
 
 REM ---------------------------------------------------------------------------
-REM 1) å®šä½ VS å¼€å‘çŽ¯å¢ƒï¼ˆæä¾› msbuild / cl / å¼•ç”¨ç¨‹åºé›†ï¼‰
+REM 1) ¶¨Î» VS ¿ª·¢»·¾³£¨Ìá¹© msbuild / cl / ÒýÓÃ³ÌÐò¼¯£©
 REM ---------------------------------------------------------------------------
-echo [1/5] å®šä½ Visual Studio å¼€å‘çŽ¯å¢ƒ...
+echo [1/5] ¶¨Î» Visual Studio ¿ª·¢»·¾³...
 
 set "VSWHERE="
 for %%V in (
@@ -42,21 +42,21 @@ for %%V in (
 )
 
 if not defined VSWHERE (
-    echo [é”™è¯¯] æœªæ‰¾åˆ° Visual Studio å®‰è£…ï¼Œè¯·æ£€æŸ¥
+    echo [´íÎó] Î´ÕÒµ½ Visual Studio °²×°£¬Çë¼ì²é
     exit /b 1
 )
 echo       VS: %VSWHERE%
 
 call "%VSWHERE%\Common7\Tools\VsDevCmd.bat" -arch=x86 -host_arch=x86 >nul
 if errorlevel 1 (
-    echo [é”™è¯¯] VsDevCmd åˆå§‹åŒ–å¤±è´¥
+    echo [´íÎó] VsDevCmd ³õÊ¼»¯Ê§°Ü
     exit /b 1
 )
 
 REM ---------------------------------------------------------------------------
-REM 2) ç¼–è¯‘ C# æ‰˜ç®¡åº“
+REM 2) ±àÒë C# ÍÐ¹Ü¿â
 REM ---------------------------------------------------------------------------
-echo [2/5] ç¼–è¯‘ C# æ‰˜ç®¡åº“ (PlugInAdapter)...
+echo [2/5] ±àÒë C# ÍÐ¹Ü¿â (PlugInAdapter)...
 
 pushd "%ADAPTER_DIR%"
 msbuild "PlugInAdapter.csproj" /p:Configuration=Release /p:Platform=x86 /nologo /v:minimal
@@ -64,31 +64,37 @@ set "CSBUILD_RESULT=%ERRORLEVEL%"
 popd
 
 if not "%CSBUILD_RESULT%"=="0" (
-    echo [é”™è¯¯] C# ç¼–è¯‘å¤±è´¥
+    echo [´íÎó] C# ±àÒëÊ§°Ü
     exit /b %CSBUILD_RESULT%
 )
-echo       OK: PlugInAdapter\bin\Release\PlugInAdapter.dll
+echo       OK: PlugInAdapter\bin\Release\RTSysPlugInAdapter.dll
 
 REM ---------------------------------------------------------------------------
-REM 3) ç¼–è¯‘ C++/CLI åŽŸç”Ÿ shim
+REM 3) ±àÒë´¿Ô­Éú shim (cl.exe£¬²»ÒÀÀµ C++/CLI ¹¤×÷¸ºÔØ)
 REM ---------------------------------------------------------------------------
-echo [3/5] ç¼–è¯‘ C++/CLI åŽŸç”Ÿ shim (PlugInNativeShim)...
+echo [3/5] ±àÒë´¿Ô­Éú shim (PlugInShimNative)...
 
 pushd "%SHIM_DIR%"
-msbuild "PlugInNativeShim.vcxproj" /p:Configuration=Release /p:Platform=Win32 /nologo /v:minimal
+if not exist "Release" mkdir "Release"
+
+REM Ô´Âë: PlugInShimNative.cpp + PlugInShimNative.def£¨ÎÞ .vcxproj£¬Ö±½ÓÓÃ cl.exe£©
+cl.exe /c /nologo /utf-8 /W3 /EHsc /LD PlugInShimNative.cpp ^
+  /link /DLL /OUT:"Release\RTSysPlugInNative.dll" ^
+  /DEF:PlugInShimNative.def mscoree.lib ole32.lib
+
 set "SHIMBUILD_RESULT=%ERRORLEVEL%"
 popd
 
 if not "%SHIMBUILD_RESULT%"=="0" (
-    echo [é”™è¯¯] C++/CLI ç¼–è¯‘å¤±è´¥
+    echo [´íÎó] Ô­Éú shim ±àÒëÊ§°Ü
     exit /b %SHIMBUILD_RESULT%
 )
-echo       OK: PlugInNativeShim\Release\PlugInNativeShim.dll
+echo       OK: PlugInNativeShim\Release\RTSysPlugInNative.dll
 
 REM ---------------------------------------------------------------------------
-REM 4) ç¼–è¯‘ C# worker è¿›ç¨‹ï¼ˆè¿è¡Œåœ¨ RTSys.exe ä¹‹å¤–ï¼Œæ‰¿è½½å…¨éƒ¨ AI ä¸šåŠ¡é€»è¾‘ï¼‰
+REM 4) ±àÒë C# worker ½ø³Ì
 REM ---------------------------------------------------------------------------
-echo [4/5] ç¼–è¯‘ C# worker (PlugInWorker)...
+echo [4/5] ±àÒë C# worker ½ø³Ì (PlugInWorker)...
 
 pushd "%WORKER_DIR%"
 msbuild "PlugInWorker.csproj" /p:Configuration=Release /p:Platform=x86 /nologo /v:minimal
@@ -96,46 +102,59 @@ set "WORKERBUILD_RESULT=%ERRORLEVEL%"
 popd
 
 if not "%WORKERBUILD_RESULT%"=="0" (
-    echo [é”™è¯¯] Worker ç¼–è¯‘å¤±è´¥
+    echo [´íÎó] Worker ±àÒëÊ§°Ü
     exit /b %WORKERBUILD_RESULT%
 )
 echo       OK: PlugInWorker\bin\Release\RTSysPlugInWorker.exe
 
 REM ---------------------------------------------------------------------------
-REM 5) éƒ¨ç½²ï¼ˆå¯é€‰ï¼‰
+REM 5) ²¿Êð£¨¿ÉÑ¡£©
 REM ---------------------------------------------------------------------------
 if /i "%~1"=="deploy" (
-    echo [5/5] éƒ¨ç½²åˆ° %DEPLOY_PATH% ...
+    echo [5/5] ²¿Êðµ½ %DEPLOY_PATH% ...
     if not exist "%DEPLOY_PATH%" mkdir "%DEPLOY_PATH%"
 
-    copy /Y "%SHIM_DIR%\Release\PlugInNativeShim.dll" "%DEPLOY_PATH%\" >nul
-    copy /Y "%ADAPTER_DIR%\bin\Release\PlugInAdapter.dll" "%DEPLOY_PATH%\" >nul
+    REM Í£Ö¹ RTSys ÒÔ±ã¸²¸ÇÎÄ¼þ
+    echo       Í£Ö¹ RTSys.exe (ÈçÕýÔÚÔËÐÐ)...
+    tasklist /FI "IMAGENAME eq RTSys.exe" 2>nul | find "RTSys.exe" >nul && (
+        taskkill /F /IM RTSys.exe >nul 2>&1
+        timeout /t 2 /nobreak >nul
+    )
 
-    REM worker è¿›ç¨‹åŠå…¶è¿è¡Œæ—¶ä¾èµ–ï¼ˆskills æ•°æ®ã€DLL ç­‰éšè¿›ç¨‹åŒçº§éƒ¨ç½²ï¼‰
+    echo       ¸´ÖÆÎÄ¼þ...
+    copy /Y "%SHIM_DIR%\Release\RTSysPlugInNative.dll" "%DEPLOY_PATH%\" >nul
+    copy /Y "%ADAPTER_DIR%\bin\Release\RTSysPlugInAdapter.dll" "%DEPLOY_PATH%\" >nul
+
     copy /Y "%WORKER_DIR%\bin\Release\RTSysPlugInWorker.exe" "%DEPLOY_PATH%\" >nul
     copy /Y "%WORKER_DIR%\bin\Release\RTSysPlugInWorker.exe.config" "%DEPLOY_PATH%\" >nul
     copy /Y "%WORKER_DIR%\bin\Release\RTSysPlugInWorker.pdb" "%DEPLOY_PATH%\" >nul 2>nul
 
-    REM æŠ€èƒ½æ•°æ®ï¼ˆRTBasic å‚è€ƒåº“ + æç¤ºè¯ + safe-coding è§„åˆ™ï¼‰
-    xcopy "%WORKER_DIR%\skills\*" "%DEPLOY_PATH%\skills\" /E /I /Y >nul
+    REM ¼¼ÄÜÊý¾Ý
+    if exist "%WORKER_DIR%\skills" (
+        if not exist "%DEPLOY_PATH%\skills" mkdir "%DEPLOY_PATH%\skills"
+        xcopy /E /I /Y "%WORKER_DIR%\skills\*" "%DEPLOY_PATH%\skills\" >nul
+    )
 
-    REM ä¾èµ–çš„å¤–éƒ¨ç¨‹åºé›†ï¼ˆè‹¥å­˜åœ¨ï¼‰
+    REM ÒÀÀµµÄÍâ²¿³ÌÐò¼¯£¨°´Ðè£¬´ÓÏîÄ¿¸ùÄ¿Â¼¿½±´£©
     for %%F in (
         "TrioSharedLibrary.dll"
+        "TrioCommunicationsLibrary.dll"
+        "TrioBaseLib.dll"
         "Newtonsoft.Json.dll"
+        "TrioCustomControlsLib.dll"
     ) do (
         if exist "%%F" copy /Y "%%F" "%DEPLOY_PATH%\" >nul
     )
 
-    echo       å·²éƒ¨ç½²åˆ°: %DEPLOY_PATH%
+    echo       ÒÑ²¿Êðµ½: %DEPLOY_PATH%
     echo.
-    echo       æç¤º: è‹¥ RTSys æ­£åœ¨è¿è¡Œï¼Œè¯·å…ˆå…³é—­å†å¯åŠ¨ä»¥åŠ è½½æ–°æ’ä»¶ã€‚
+    echo       ÌáÊ¾: ÇëÖØÆô RTSys ÒÔ¼ÓÔØÐÂ²å¼þ¡£
 ) else (
-    echo [5/5] è·³è¿‡éƒ¨ç½²ï¼ˆä½¿ç”¨ build_deploy.bat deploy æ‰§è¡Œéƒ¨ç½²ï¼‰
+    echo [5/5] Ìø¹ý²¿Êð£¨Ê¹ÓÃ build_deploy.bat deploy Ö´ÐÐ²¿Êð£©
 )
 
 echo.
 echo ============================================================
-echo  æž„å»ºå®Œæˆ
+echo  ¹¹½¨Íê³É
 echo ============================================================
 exit /b 0
