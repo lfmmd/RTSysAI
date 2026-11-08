@@ -173,6 +173,37 @@ namespace RTSys.PlugIn
             }
         }
 
+        /// <summary>宿主主题色变化时重建整个 UI。
+        /// BuildUI() 只能按当前调色板构建，已创建的控件无法整体换色，
+        /// 因此保留输入草稿、横幅可见性和发送按钮状态后重建一次。</summary>
+        internal void RebuildForTheme(Color background, Color foreground, Color accent)
+        {
+            try
+            {
+                string draft = _inputBox != null ? _inputBox.Text : null;
+                bool planVisible = _planModeBanner != null && _planModeBanner.Visibility == Visibility.Visible;
+                bool researchVisible = _researchBanner != null && _researchBanner.Visibility == Visibility.Visible;
+
+                ConfigurePalette(background, foreground, accent);
+                BuildUI();
+
+                if (draft != null) _inputBox.Text = draft;
+                if (planVisible) _planModeBanner.Visibility = Visibility.Visible;
+                if (researchVisible) _researchBanner.Visibility = Visibility.Visible;
+                if (_isProcessing)
+                {
+                    _sendBtn.Content = Lang.S("Stop");
+                    _sendBtn.Background = new SolidColorBrush(Palette.Danger);
+                }
+                UpdateStatusInfo();
+                if (_scrollViewer != null) _scrollViewer.ScrollToEnd();
+            }
+            catch (Exception ex)
+            {
+                try { PlugInLog.LogException("ChatPanel.RebuildForTheme", ex); } catch { }
+            }
+        }
+
         /// <summary>只更新全局调色板，不触碰已创建的控件。
         /// 需在 new ChatPanel() 之前调用，让 BuildUI() 直接按宿主主题色构建。</summary>
         internal static void ConfigurePalette(Color background, Color foreground, Color accent)

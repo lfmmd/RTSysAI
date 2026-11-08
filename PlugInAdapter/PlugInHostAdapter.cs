@@ -221,6 +221,8 @@ namespace RTSys.PlugIn
         private bool _dockBarSupported;
         private bool _autoSizeSupported;
         private FrameworkElement _view;
+        /// <summary>当前嵌入的视图（派生类用于主题刷新等）。</summary>
+        protected FrameworkElement View => _view;
 
         // 持久的 UI 线程（STA + Dispatcher）。WPF 控件的消息泵必须持续运行，
         // 否则 ChatPanel 的 Dispatcher.BeginInvoke 回调会静默丢失。
@@ -964,6 +966,8 @@ namespace RTSys.PlugIn
                 }
                 if (!visible) return;
 
+                OnSizeFollowTick();
+
                 NativeWindow.RECT rc;
                 if (!NativeWindow.GetClientRect(_embeddedParentHwnd, out rc)) return;
                 if (rc.Width <= 0 || rc.Height <= 0) return;
@@ -974,6 +978,9 @@ namespace RTSys.PlugIn
             }
             catch { /* size follow best-effort only */ }
         }
+
+        /// <summary>SizeFollow 定时器每次 tick（150ms）回调，派生类可挂载低频检查。</summary>
+        protected virtual void OnSizeFollowTick() { }
 
         /// <summary>关闭 ChatPanel 打开的所有对话框（在 UI 线程上执行）。</summary>
         private void CloseDialogsSafe()
@@ -1068,8 +1075,47 @@ namespace RTSys.PlugIn
     /// </summary>
     public class RTSysPlugInAdapterImpl : PlugInHostAdapter
     {
+        // 复用 SizeFollow 定时器轮询宿主主题色：每 ThemeCheckEveryTicks 次 tick（150ms * 40 = 6s）
+        // 才真正读取一次（3 个 int），其余 tick 只做整数自增；主题变化时才重建 UI。
+        private const int ThemeCheckEveryTicks = 40;
+        private int _themeCheckTick;
+        private System.Windows.Media.Color _appliedThemeBg;
+        private System.Windows.Media.Color _appliedThemeFg;
+        private System.Windows.Media.Color _appliedThemeAc;
+        private bool _hasAppliedTheme;
+
         public RTSysPlugInAdapterImpl()
         {
+        }
+
+        protected override void OnSizeFollowTick()
+        {
+            if (++_themeCheckTick < ThemeCheckEveryTicks) return;
+            _themeCheckTick = 0;
+
+            try
+            {
+                System.Windows.Media.Color bg, fg, ac;
+                if (!TryGetHostThemeColors(_hostContext, out bg, out fg, out ac, false)) return;
+                if (_hasAppliedTheme && bg == _appliedThemeBg && fg == _appliedThemeFg && ac == _appliedThemeAc) return;
+
+                _appliedThemeBg = bg;
+                _appliedThemeFg = fg;
+                _appliedThemeAc = ac;
+                _hasAppliedTheme = true;
+
+                var panel = View as ChatPanel;
+                if (panel == null) return;
+
+                PlugInLog.Log("CheckThemeChanged() 宿主主题色变化，重建插件 UI: bg=(" + bg.R + "," + bg.G + "," + bg.B
+                    + ") fg=(" + fg.R + "," + fg.G + "," + fg.B
+                    + ") accent=(" + ac.R + "," + ac.G + "," + ac.B + ")");
+                panel.RebuildForTheme(bg, fg, ac);
+            }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("CheckThemeChanged", ex);
+            }
         }
 
         protected override void InitializeCore()
@@ -1133,12 +1179,16 @@ namespace RTSys.PlugIn
                     }
                     else
                     {
-                        ChatPanel.ConfigurePalette(
-                            System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E),
-                            System.Windows.Media.Color.FromRgb(0xF0, 0xF0, 0xF0),
-                            System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD7));
+                        bg = System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E);
+                        fg = System.Windows.Media.Color.FromRgb(0xF0, 0xF0, 0xF0);
+                        ac = System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD7);
+                        ChatPanel.ConfigurePalette(bg, fg, ac);
                         PlugInLog.Log("CreateViewCore() 使用兜底深色主题（未从宿主读取到主题色）");
                     }
+                    _appliedThemeBg = bg;
+                    _appliedThemeFg = fg;
+                    _appliedThemeAc = ac;
+                    _hasAppliedTheme = true;
                 }
                 catch (Exception themeEx)
                 {
@@ -1196,12 +1246,14 @@ namespace RTSys.PlugIn
         /// 从宿主进程读取当前主题色（背景 / 前景 / 强调色）。
         /// ExtMainHmi.dll 随 RTSys.exe 加载，插件与宿主同进程，可直接查导出并调用。
         /// 失败时返回 false，调用方使用兜底值。
+        /// <paramref name="verbose"/> 为 false 时不写日志（用于定时静默轮询，避免刷屏）。
         /// </summary>
         protected virtual bool TryGetHostThemeColors(
             IntPtr hostContext,
             out System.Windows.Media.Color background,
             out System.Windows.Media.Color foreground,
-            out System.Windows.Media.Color accent)
+            out System.Windows.Media.Color accent,
+            bool verbose = true)
         {
             background = System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E);
             foreground = System.Windows.Media.Color.FromRgb(0xF0, 0xF0, 0xF0);
@@ -1212,13 +1264,13 @@ namespace RTSys.PlugIn
                 IntPtr mod = GetModuleHandle(ExtMainHmiModule);
                 if (mod == IntPtr.Zero)
                 {
-                    PlugInLog.Log("TryGetHostThemeColors: " + ExtMainHmiModule + " 未加载");
+                    if (verbose) PlugInLog.Log("TryGetHostThemeColors: " + ExtMainHmiModule + " 未加载");
                     return false;
                 }
                 IntPtr fn = GetProcAddress(mod, ZhmiGetMainThemeColorExport);
                 if (fn == IntPtr.Zero)
                 {
-                    PlugInLog.Log("TryGetHostThemeColors: " + ExtMainHmiModule + " 未导出 ZHMI_GetMainThemeColor");
+                    if (verbose) PlugInLog.Log("TryGetHostThemeColors: " + ExtMainHmiModule + " 未导出 ZHMI_GetMainThemeColor");
                     return false;
                 }
                 var getThemeColor = Marshal.GetDelegateForFunctionPointer<ZhmiGetMainThemeColor_t>(fn);
@@ -1241,7 +1293,7 @@ namespace RTSys.PlugIn
                     IntPtr pAc = Marshal.ReadIntPtr(ppAc);
                     if (pBg == IntPtr.Zero || pFg == IntPtr.Zero || pAc == IntPtr.Zero)
                     {
-                        PlugInLog.Log("TryGetHostThemeColors: 宿主返回空的主题色指针");
+                        if (verbose) PlugInLog.Log("TryGetHostThemeColors: 宿主返回空的主题色指针");
                         return false;
                     }
 
@@ -1249,11 +1301,14 @@ namespace RTSys.PlugIn
                     foreground = ColorRefToColor((uint)Marshal.ReadInt32(pFg));
                     accent = ColorRefToColor((uint)Marshal.ReadInt32(pAc));
 
-                    PlugInLog.Log(string.Format(
-                        "TryGetHostThemeColors: bg=({0},{1},{2}) fg=({3},{4},{5}) accent=({6},{7},{8})",
-                        background.R, background.G, background.B,
-                        foreground.R, foreground.G, foreground.B,
-                        accent.R, accent.G, accent.B));
+                    if (verbose)
+                    {
+                        PlugInLog.Log(string.Format(
+                            "TryGetHostThemeColors: bg=({0},{1},{2}) fg=({3},{4},{5}) accent=({6},{7},{8})",
+                            background.R, background.G, background.B,
+                            foreground.R, foreground.G, foreground.B,
+                            accent.R, accent.G, accent.B));
+                    }
                     return true;
                 }
                 finally
@@ -1265,7 +1320,7 @@ namespace RTSys.PlugIn
             }
             catch (Exception ex)
             {
-                PlugInLog.LogException("TryGetHostThemeColors", ex);
+                if (verbose) PlugInLog.LogException("TryGetHostThemeColors", ex);
                 return false;
             }
         }
