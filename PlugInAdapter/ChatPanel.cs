@@ -44,15 +44,22 @@ namespace RTSys.PlugIn
         private TextBlock _researchLabel;
 
         // ---- 主题色（静态调色板）----
-        // BuildUI() 在构造期就写入所有控件的颜色，而 ApplyTheme() 是构造之后才被宿主调用的，
-        // 因此所有颜色必须统一走这里的调色板：BuildUI() 用调色板取值，
-        // ApplyTheme() 更新调色板后重建 UI，才能真正跟随宿主浅色/深色主题。
+        // BuildUI() 在构造期就写入所有控件的颜色，因此宿主主题色必须在 new ChatPanel()
+        // 之前通过 ConfigurePalette() 写入调色板，BuildUI() 才能直接用正确的颜色构建；
+        // 构造之后再改色只能刷新到少数控件，工具栏/气泡/对话框会残留旧色。
         // 用 static 是因为消息模板的 ValueConverter（RoleToBrushConverter 等）是静态类，
         // 无法访问实例字段，只能读这份全局调色板。
-        /// <summary>把主题色换算成派生色（描边/次级背景/分隔线），保证浅色主题下也有层次。</summary>
+        /// <summary>把主题色换算成派生色（描边/次级背景/分隔线）。
+        /// factor &lt; 1 表示明确要变暗（如 AccentDark），直接相乘；
+        /// factor &gt; 1 时深色背景提亮，浅色背景按反比例压暗，
+        /// 避免浅色主题下乘系数后全部截断成纯白、丢失层次。</summary>
         private static Color DeriveSurface(Color bg, double factor)
         {
-            byte c(byte v) => (byte)Math.Max(0, Math.Min(255, (int)(v * factor)));
+            double scale;
+            if (factor < 1.0) scale = factor;
+            else if (IsDarkBackground(bg)) scale = factor;
+            else scale = Math.Max(0.6, 1.0 - (factor - 1.0) * 0.15);
+            byte c(byte v) => (byte)Math.Max(0, Math.Min(255, (int)(v * scale)));
             return Color.FromRgb(c(bg.R), c(bg.G), c(bg.B));
         }
 
@@ -157,6 +164,21 @@ namespace RTSys.PlugIn
         {
             try
             {
+                ConfigurePalette(background, foreground, accent);
+                RefreshTheme();
+            }
+            catch (Exception ex)
+            {
+                try { PlugInLog.LogException("ChatPanel.ApplyTheme", ex); } catch { }
+            }
+        }
+
+        /// <summary>只更新全局调色板，不触碰已创建的控件。
+        /// 需在 new ChatPanel() 之前调用，让 BuildUI() 直接按宿主主题色构建。</summary>
+        internal static void ConfigurePalette(Color background, Color foreground, Color accent)
+        {
+            try
+            {
                 // 写入全局调色板（静态转换器也读这份）
                 Palette.Bg = background;
                 Palette.Fg = foreground;
@@ -188,12 +210,10 @@ namespace RTSys.PlugIn
                 Palette.Danger = isDark ? Color.FromRgb(160, 40, 40) : Color.FromRgb(200, 50, 50);
                 Palette.Success = isDark ? Color.FromRgb(0, 120, 70) : Color.FromRgb(20, 150, 90);
                 Palette.Link = isDark ? Color.FromRgb(100, 180, 255) : Color.FromRgb(20, 100, 200);
-
-                RefreshTheme();
             }
             catch (Exception ex)
             {
-                try { PlugInLog.LogException("ChatPanel.ApplyTheme", ex); } catch { }
+                try { PlugInLog.LogException("ChatPanel.ConfigurePalette", ex); } catch { }
             }
         }
 
@@ -1103,7 +1123,7 @@ namespace RTSys.PlugIn
             panel.Children.Add(new TextBlock
             {
                 Text = $"AI助手  v{verStr}",
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 FontSize = 16,
                 FontWeight = FontWeights.Bold,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -1140,7 +1160,7 @@ namespace RTSys.PlugIn
             panel.Children.Add(new TextBlock
             {
                 Text = "免责声明",
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 FontSize = 13,
                 FontWeight = FontWeights.Bold,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -1162,7 +1182,7 @@ namespace RTSys.PlugIn
                 Height = 28,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Background = new SolidColorBrush(Palette.Accent),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Accent)),
                 BorderBrush = Brushes.Transparent
             };
             okBtn.Click += (s, ev) => win.Close();
@@ -1208,7 +1228,7 @@ namespace RTSys.PlugIn
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Height = 280,
                 Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 4, 6, 4),
                 FontFamily = new FontFamily("Consolas")
@@ -1247,7 +1267,7 @@ namespace RTSys.PlugIn
                 Width = 70, Height = 28,
                 Margin = new Thickness(0, 0, 8, 0),
                 Background = new SolidColorBrush(Palette.Toolbar),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.FgMuted),
                 BorderBrush = new SolidColorBrush(Palette.Border)
             };
             cancelBtn.Click += (s, ev) => win.Close();
@@ -1258,7 +1278,7 @@ namespace RTSys.PlugIn
                 Content = Lang.S("Save"),
                 Width = 70, Height = 28,
                 Background = new SolidColorBrush(Palette.Accent),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Accent)),
                 BorderBrush = Brushes.Transparent
             };
             saveBtn.Click += (s, ev) =>
@@ -1306,7 +1326,7 @@ namespace RTSys.PlugIn
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 2),
                 Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0),
                 ToolTip = "192.168.1.100"
@@ -1329,7 +1349,7 @@ namespace RTSys.PlugIn
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 10),
                 Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0),
                 PasswordChar = '*'
@@ -1345,7 +1365,7 @@ namespace RTSys.PlugIn
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 10),
                 Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
@@ -1360,7 +1380,7 @@ namespace RTSys.PlugIn
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 14),
                 Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
@@ -1375,7 +1395,7 @@ namespace RTSys.PlugIn
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 14),
                 Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
@@ -1386,7 +1406,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("ShowToolStatus"),
                 IsChecked = _ai.ShowToolStatus,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 14),
                 ToolTip = Lang.S("ShowToolStatusDesc")
             };
@@ -1397,7 +1417,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("IncludeSkillImages"),
                 IsChecked = _ai.IncludeSkillImages,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 14),
                 ToolTip = Lang.S("IncludeSkillImagesDesc")
             };
@@ -1408,7 +1428,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("ControllerValidation"),
                 IsChecked = AiService.EnableControllerValidation,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 14),
                 ToolTip = Lang.S("ControllerValidationDesc")
             };
@@ -1419,7 +1439,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("EnableThinking"),
                 IsChecked = AiService.EnableThinking,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 4),
                 ToolTip = Lang.S("EnableThinkingDesc")
             };
@@ -1434,7 +1454,7 @@ namespace RTSys.PlugIn
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 14),
                 Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
@@ -1445,7 +1465,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("ShowThinking"),
                 IsChecked = AiService.ShowThinking,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 14),
                 ToolTip = Lang.S("ShowThinkingDesc")
             };
@@ -1456,7 +1476,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("MemoryEnabled"),
                 IsChecked = AiService.MemoryEnabled,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 14),
                 ToolTip = Lang.S("MemoryEnabledDesc")
             };
@@ -1467,7 +1487,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("LocalizeThinking"),
                 IsChecked = AiService.LocalizeThinking,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 14),
                 ToolTip = Lang.S("LocalizeThinkingDesc")
             };
@@ -1478,7 +1498,7 @@ namespace RTSys.PlugIn
             {
                 Content = Lang.S("UseChineseDocs"),
                 IsChecked = AiService.UseChineseDocs,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 14),
                 ToolTip = Lang.S("UseChineseDocsDesc")
             };
@@ -1488,7 +1508,7 @@ namespace RTSys.PlugIn
             var dialectLabel = new TextBlock
             {
                 Text = Lang.S("DialectMode"),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 4)
             };
             panel.Children.Add(dialectLabel);
@@ -1516,7 +1536,7 @@ namespace RTSys.PlugIn
                 Height = 28,
                 Padding = new Thickness(10, 0, 10, 0),
                 Background = new SolidColorBrush(Palette.Warning),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Warning)),
                 BorderBrush = new SolidColorBrush(Palette.ConfirmBorder)
             };
             var skillStatus = new TextBlock
@@ -1569,7 +1589,7 @@ namespace RTSys.PlugIn
                 Width = 70, Height = 28,
                 Margin = new Thickness(0, 0, 8, 0),
                 Background = new SolidColorBrush(Palette.Toolbar),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.FgMuted),
                 BorderBrush = new SolidColorBrush(Palette.Border)
             };
             cancelBtn.Click += (s, ev) => win.DialogResult = false;
@@ -1580,7 +1600,7 @@ namespace RTSys.PlugIn
                 Content = Lang.S("Save"),
                 Width = 70, Height = 28,
                 Background = new SolidColorBrush(Palette.Accent),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Accent)),
                 BorderBrush = Brushes.Transparent
             };
             saveBtn.Click += (s, ev) =>
@@ -1644,7 +1664,7 @@ namespace RTSys.PlugIn
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 6),
                 Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = new SolidColorBrush(Palette.Border),
                 Padding = new Thickness(6, 0, 6, 0)
             };
@@ -1653,7 +1673,7 @@ namespace RTSys.PlugIn
             {
                 Content = "允许运动控制 API（危险：run/stop、VR/TABLE、IO、EtherCAT 写入）",
                 IsChecked = string.Equals(LoadConfigValue("enableMotionControlApi"), "true", StringComparison.OrdinalIgnoreCase),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 4)
             };
             panel.Children.Add(motionApiCheck);
@@ -1681,7 +1701,7 @@ namespace RTSys.PlugIn
                 Padding = new Thickness(8, 0, 8, 0),
                 Margin = new Thickness(0, 0, 8, 0),
                 Background = new SolidColorBrush(Palette.Toolbar),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.FgMuted),
                 BorderBrush = new SolidColorBrush(Palette.Border)
             };
             copyTokenBtn.Click += (s, ev) =>
@@ -1705,7 +1725,7 @@ namespace RTSys.PlugIn
                 Height = 26,
                 Padding = new Thickness(8, 0, 8, 0),
                 Background = new SolidColorBrush(Palette.Toolbar),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.FgMuted),
                 BorderBrush = new SolidColorBrush(Palette.Border)
             };
             nonceBtn.Click += (s, ev) =>
@@ -1801,7 +1821,7 @@ namespace RTSys.PlugIn
             return new TextBlock
             {
                 Text = text,
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 Margin = new Thickness(0, 0, 0, 4)
             };
         }
@@ -1908,7 +1928,7 @@ namespace RTSys.PlugIn
                 Width = 70, Height = 28,
                 Margin = new Thickness(0, 0, 8, 0),
                 Background = new SolidColorBrush(Palette.Accent),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(ContrastColor(Palette.Accent)),
                 BorderBrush = Brushes.Transparent
             };
             btnPanel.Children.Add(openBtn);
@@ -1918,7 +1938,7 @@ namespace RTSys.PlugIn
                 Content = Lang.S("Close"),
                 Width = 70, Height = 28,
                 Background = new SolidColorBrush(Palette.Toolbar),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.FgMuted),
                 BorderBrush = new SolidColorBrush(Palette.Border)
             };
             closeBtn.Click += (s, ev) => win.Close();
@@ -1935,7 +1955,7 @@ namespace RTSys.PlugIn
             var listBox = new ListBox
             {
                 Background = new SolidColorBrush(Palette.Bg),
-                Foreground = Brushes.White,
+                Foreground = new SolidColorBrush(Palette.Fg),
                 BorderBrush = Brushes.Transparent,
                 Margin = new Thickness(4)
             };
@@ -2174,7 +2194,7 @@ namespace RTSys.PlugIn
     /// <summary>
     /// 插件主题调色板：静态类供 ChatPanel.BuildUI()、ApplyTheme()、RefreshTheme() 以及
     /// 消息模板的 ValueConverter 共用，避免硬编码颜色。RTSys 加载插件进宿主进程后，
-    /// ApplyTheme() 会把宿主读取的主题色写入此类，整个插件 UI 随之切换。
+    /// ConfigurePalette() 会把宿主读取的主题色写入此类，BuildUI() 按此构建整个插件 UI。
     /// </summary>
     internal static class Palette
     {

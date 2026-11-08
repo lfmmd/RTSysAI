@@ -1118,32 +1118,33 @@ namespace RTSys.PlugIn
             PlugInLog.Log("CreateViewCore() calling new ChatPanel()...");
             try
             {
-                var view = new ChatPanel();
-                // 尝试从宿主获取主题色，使插件 UI 随宿主浅色/深色主题自动切换。
-                // RTSys.exe 导出 Scope_GetMainThemeColor / ECAT_GetMainThemeColor / ZHMI_GetMainThemeColor。
-                // 宿主目前未提供公开托管接口，故通过 P/Invoke GetProcAddress 在宿主进程
-                // 中查找并调用；失败则回退深色兜底。
+                // 先读宿主主题色写入全局调色板，再构造面板：
+                // ChatPanel 构造函数里的 BuildUI() 直接用调色板取值，
+                // 构造之后再改色只能刷新到少数控件，工具栏/气泡/对话框仍是旧色。
                 try
                 {
                     System.Windows.Media.Color bg, fg, ac;
                     if (TryGetHostThemeColors(_hostContext, out bg, out fg, out ac))
                     {
-                        view.ApplyTheme(bg, fg, ac);
-                        PlugInLog.Log("CreateViewCore() ApplyTheme 使用宿主主题色: bg=(" + bg.R + "," + bg.G + "," + bg.B + ")");
+                        ChatPanel.ConfigurePalette(bg, fg, ac);
+                        PlugInLog.Log("CreateViewCore() 使用宿主主题色: bg=(" + bg.R + "," + bg.G + "," + bg.B
+                            + ") fg=(" + fg.R + "," + fg.G + "," + fg.B
+                            + ") accent=(" + ac.R + "," + ac.G + "," + ac.B + ")");
                     }
                     else
                     {
-                        view.ApplyTheme(
+                        ChatPanel.ConfigurePalette(
                             System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E),
                             System.Windows.Media.Color.FromRgb(0xF0, 0xF0, 0xF0),
                             System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD7));
-                        PlugInLog.Log("CreateViewCore() ApplyTheme 使用兜底深色主题（未从宿主读取到主题色）");
+                        PlugInLog.Log("CreateViewCore() 使用兜底深色主题（未从宿主读取到主题色）");
                     }
                 }
                 catch (Exception themeEx)
                 {
-                    PlugInLog.LogException("CreateViewCore ApplyTheme", themeEx);
+                    PlugInLog.LogException("CreateViewCore ConfigurePalette", themeEx);
                 }
+                var view = new ChatPanel();
                 // Backup handler for UI thread unhandled exceptions (CreateViewCore runs on UI thread),
                 // preventing them from crashing the RTSys process.
                 System.Windows.Threading.Dispatcher.CurrentDispatcher.UnhandledException += (s, e) =>
@@ -1171,49 +1172,30 @@ namespace RTSys.PlugIn
         private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
 
         /// <summary>
-        /// 宿主主题色函数指针签名（x86 __cdecl）：
-        ///   bool GetMainThemeColor(COLORREF* outColor, int index)
+        /// 宿主主题色查询函数（x86 __cdecl，ExtMainHmi.dll 导出）：
+        ///   int ZHMI_GetMainThemeColor(COLORREF** ppBackground, COLORREF** ppForeground, COLORREF** ppAccent)
         ///
-        /// COLORREF 在 Win32 中是 0x00BBGGRR 的 DWORD（低字节 R）。index 取不同槽位：
-        /// 0=背景、1=前景、2=强调色（依据 ZmotionCad3/ZHMI 插件 ABI 惯例，具体取值以运行时为准）。
-        /// 某个槽位取不到时函数返回 false，调用方使用兜底值。
+        /// 函数把 DLL 内三个主题色全局变量的地址写回参数，返回值恒为 0，不能当作成功/失败标志。
+        /// 反汇编确认（ExtMainHmi.dll +0x3D30）：
+        ///   mov eax,[ebp+8]  / mov [eax],0x1005D0A4   ; *ppBackground = &g_bg
+        ///   mov eax,[ebp+0Ch]/ mov [eax],0x1005D0A0   ; *ppForeground = &g_fg
+        ///   mov eax,[ebp+10h]/ mov [eax],0x1005D09C   ; *ppAccent     = &g_accent
+        ///   xor eax,eax / ret                          ; 返回 0
+        ///
+        /// COLORREF 是 0x00BBGGRR 的 DWORD（低字节 R）。
+        /// 注意：ExtRTSysScope.dll / ExtRTSysEtherCAT.dll 的 Scope/ECAT_GetMainThemeColor
+        /// 是“宿主调用插件”的回调（参数为 r,g,b 值），不是插件查询宿主的接口，不能用于读取。
         /// </summary>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate int GetMainThemeColor_t(IntPtr pBgColor, IntPtr pFgColor, IntPtr pAccentColor);
+        private delegate int ZhmiGetMainThemeColor_t(IntPtr ppBackground, IntPtr ppForeground, IntPtr ppAccent);
 
-        /// <summary>宿主导出的主题色函数名（按优先级尝试）。
-        /// 注意：这些函数分布在不同的 DLL 中，且导出名为 C++ 装饰名（mangled name）。
-        ///   Scope_GetMainThemeColor -> ExtRTSysScope.dll   -> ?Scope_GetMainThemeColor@@YAHKKK@Z
-        ///   ECAT_GetMainThemeColor -> ExtRTSysEtherCAT.dll -> ?ECAT_GetMainThemeColor@@YAHKKK@Z
-        ///   ZHMI_GetMainThemeColor -> ZHmiEx.dll          -> ?ZHMI_GetMainThemeColor@@YAHPAPAK00@Z
-        /// 签名均为 x86 __cdecl：
-        ///   bool GetMainThemeColor(COLORREF* outColor, int index)  返回 0/1
-        /// COLORREF (0x00BBGGRR) 通过 out uint 返回。index: 0=背景, 1=前景, 2=强调色。
-        /// </summary>
-        private static readonly (string DllName, string MangledName)[] HostThemeColorExports =
-        {
-            ("ExtRTSysScope.dll",   "?Scope_GetMainThemeColor@@YAHKKK@Z"),
-            ("ExtRTSysEtherCAT.dll", "?ECAT_GetMainThemeColor@@YAHKKK@Z"),
-            ("ZHmiEx.dll",          "?ZHMI_GetMainThemeColor@@YAHPAPAK00@Z"),
-        };
-
-        /// <summary>宿主主题色槽位：背景 / 前景 / 强调色。</summary>
-        private const int ThemeSlotBackground = 0;
-        private const int ThemeSlotForeground = 1;
-        private const int ThemeSlotAccent = 2;
+        private const string ExtMainHmiModule = "ExtMainHmi.dll";
+        private const string ZhmiGetMainThemeColorExport = "?ZHMI_GetMainThemeColor@@YAHPAPAK00@Z";
 
         /// <summary>
         /// 从宿主进程读取当前主题色（背景 / 前景 / 强调色）。
-        ///
-        /// RTSys.exe 导出三个同名函数：Scope_GetMainThemeColor / ECAT_GetMainThemeColor /
-        /// ZHMI_GetMainThemeColor。插件加载在宿主进程内，可直接 GetProcAddress 拿到函数指针调用。
-        ///
-        /// 签名（x86 __cdecl，参考 ZmotionCad3 / ZHMI 插件 ABI）：
-        ///   bool GetMainThemeColor(COLORREF* outColor, int index)
-        ///
-        /// COLORREF 在 Win32 中是 0x00BBGGRR 的 DWORD（低字节 R）。index 取不同槽位：
-        /// 0=背景、1=前景、2=强调色（依据 ZmotionCad3/ZHMI 插件 ABI 惯例，具体取值以运行时为准）。
-        /// 某个槽位取不到时函数返回 false，调用方使用兜底值。
+        /// ExtMainHmi.dll 随 RTSys.exe 加载，插件与宿主同进程，可直接查导出并调用。
+        /// 失败时返回 false，调用方使用兜底值。
         /// </summary>
         protected virtual bool TryGetHostThemeColors(
             IntPtr hostContext,
@@ -1227,49 +1209,45 @@ namespace RTSys.PlugIn
 
             try
             {
-                // 插件被宿主 AfxLoadLibrary 加载，与宿主同进程。
-                // 主题色函数分布在宿主及其依赖 DLL 中，遍历加载并按装饰名查找。
-                GetMainThemeColor_t getThemeColor = null;
-                string usedExport = null;
-                string usedDll = null;
-                foreach (var (dllName, mangledName) in HostThemeColorExports)
+                IntPtr mod = GetModuleHandle(ExtMainHmiModule);
+                if (mod == IntPtr.Zero)
                 {
-                    IntPtr mod = GetModuleHandle(dllName);
-                    if (mod == IntPtr.Zero) continue;
-                    IntPtr fn = GetProcAddress(mod, mangledName);
-                    if (fn == IntPtr.Zero) continue;
-                    getThemeColor = Marshal.GetDelegateForFunctionPointer<GetMainThemeColor_t>(fn);
-                    usedExport = mangledName;
-                    usedDll = dllName;
-                    break;
-                }
-                if (getThemeColor == null)
-                {
-                    PlugInLog.Log("TryGetHostThemeColors: 宿主未导出任何 GetMainThemeColor");
+                    PlugInLog.Log("TryGetHostThemeColors: " + ExtMainHmiModule + " 未加载");
                     return false;
                 }
+                IntPtr fn = GetProcAddress(mod, ZhmiGetMainThemeColorExport);
+                if (fn == IntPtr.Zero)
+                {
+                    PlugInLog.Log("TryGetHostThemeColors: " + ExtMainHmiModule + " 未导出 ZHMI_GetMainThemeColor");
+                    return false;
+                }
+                var getThemeColor = Marshal.GetDelegateForFunctionPointer<ZhmiGetMainThemeColor_t>(fn);
 
-                PlugInLog.Log("TryGetHostThemeColors: 使用 " + usedDll + "!" + usedExport);
-
-                // Allocate memory for the three COLORREF output parameters
-                IntPtr pBg = Marshal.AllocHGlobal(4);
-                IntPtr pFg = Marshal.AllocHGlobal(4);
-                IntPtr pAc = Marshal.AllocHGlobal(4);
+                // 参数是“接收全局变量地址”的指针槽位，不是颜色缓冲区。
+                IntPtr ppBg = Marshal.AllocHGlobal(IntPtr.Size);
+                IntPtr ppFg = Marshal.AllocHGlobal(IntPtr.Size);
+                IntPtr ppAc = Marshal.AllocHGlobal(IntPtr.Size);
                 try
                 {
-                    int result = getThemeColor(pBg, pFg, pAc);
-                    if (result == 0)
+                    Marshal.WriteIntPtr(ppBg, IntPtr.Zero);
+                    Marshal.WriteIntPtr(ppFg, IntPtr.Zero);
+                    Marshal.WriteIntPtr(ppAc, IntPtr.Zero);
+
+                    // 返回值恒为 0，不检查。
+                    getThemeColor(ppBg, ppFg, ppAc);
+
+                    IntPtr pBg = Marshal.ReadIntPtr(ppBg);
+                    IntPtr pFg = Marshal.ReadIntPtr(ppFg);
+                    IntPtr pAc = Marshal.ReadIntPtr(ppAc);
+                    if (pBg == IntPtr.Zero || pFg == IntPtr.Zero || pAc == IntPtr.Zero)
                     {
-                        PlugInLog.Log("TryGetHostThemeColors: 宿主主题色接口返回失败 (0)");
+                        PlugInLog.Log("TryGetHostThemeColors: 宿主返回空的主题色指针");
                         return false;
                     }
-                    uint bgRef = (uint)Marshal.ReadInt32(pBg);
-                    uint fgRef = (uint)Marshal.ReadInt32(pFg);
-                    uint acRef = (uint)Marshal.ReadInt32(pAc);
 
-                    background = ColorRefToColor(bgRef);
-                    foreground = ColorRefToColor(fgRef);
-                    accent = ColorRefToColor(acRef);
+                    background = ColorRefToColor((uint)Marshal.ReadInt32(pBg));
+                    foreground = ColorRefToColor((uint)Marshal.ReadInt32(pFg));
+                    accent = ColorRefToColor((uint)Marshal.ReadInt32(pAc));
 
                     PlugInLog.Log(string.Format(
                         "TryGetHostThemeColors: bg=({0},{1},{2}) fg=({3},{4},{5}) accent=({6},{7},{8})",
@@ -1280,9 +1258,9 @@ namespace RTSys.PlugIn
                 }
                 finally
                 {
-                    Marshal.FreeHGlobal(pBg);
-                    Marshal.FreeHGlobal(pFg);
-                    Marshal.FreeHGlobal(pAc);
+                    Marshal.FreeHGlobal(ppBg);
+                    Marshal.FreeHGlobal(ppFg);
+                    Marshal.FreeHGlobal(ppAc);
                 }
             }
             catch (Exception ex)
