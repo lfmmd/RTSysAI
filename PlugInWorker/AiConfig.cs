@@ -21,22 +21,24 @@ namespace RTSys.PlugIn
         private bool _skillsInitialized;
         private static bool _includeSkillImages = false;
         private static bool _enableControllerValidation = false;
-        private static bool _enableThinking = false;
-        private static int _budgetTokens = 10000;
+        // 思考强度（DeepSeek reasoning_effort 档位）: off / low / medium / high / max。
+        // 无配置时默认 high（与 DeepSeek 默认开启思考一致）；旧 enableThinking/budgetTokens 配置首次迁移时降级映射。
+        private static string _reasoningEffort = "high";
         private static bool _showThinking = true;
         private static bool _memoryEnabled = true;
         private static bool _localizeThinking = true;
         private static bool _useChineseDocs = false;   // skill 文档语言：false=英文（默认），true=中文
         private string _dialectMode = "auto";   // 提示词方言：auto(按项目主导方言推断)/rtbasic
         private static string _basEncoding = "auto"; // .bas 输出编码：auto(保持原编码，新文件 ANSI)/ansi/utf8
+        private static string _toolMode = AiToolPolicy.Development;
 
         // 本类不管理的配置键（RTSysIP / projectDir / enableHttpApi 等）：
         // 加载时缓存到内存，保存时原样写回，避免设置保存把用户配置整份覆盖掉。
         private static readonly HashSet<string> ManagedConfigKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "apiKey", "model", "lightModel", "apiUrl", "showToolStatus", "skillsInitialized",
-            "includeSkillImages", "enableControllerValidation", "enableThinking", "budgetTokens",
-            "showThinking", "memoryEnabled", "localizeThinking", "useChineseDocs", "dialectMode", "basEncoding"
+            "includeSkillImages", "enableControllerValidation", "reasoningEffort",
+            "showThinking", "memoryEnabled", "localizeThinking", "useChineseDocs", "dialectMode", "basEncoding", "toolMode"
         };
         private readonly Dictionary<string, object> _extraConfig =
             new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
@@ -76,15 +78,24 @@ namespace RTSys.PlugIn
                         bool b;
                         if (val != null && bool.TryParse(val.ToString(), out b)) _enableControllerValidation = b;
                     }
-                    if (cfg.TryGetValue("enableThinking", out val))
+                    // 兼容旧键：enableThinking/budgetTokens 首次降级映射到强度档；新键 reasoningEffort 优先。
+                    // 旧 budget 默认 50000（如本机配置）远超任何正常上限，必须钳位到 max 档。
+                    object legacyThinking, legacyBudget;
+                    bool hasReasoning = cfg.TryGetValue("reasoningEffort", out val);
+                    if (hasReasoning && val != null && !string.IsNullOrEmpty(val.ToString()))
+                    {
+                        _reasoningEffort = NormalizeReasoningEffort(val.ToString());
+                    }
+                    else if (cfg.TryGetValue("enableThinking", out legacyThinking))
                     {
                         bool b;
-                        if (val != null && bool.TryParse(val.ToString(), out b)) _enableThinking = b;
-                    }
-                    if (cfg.TryGetValue("budgetTokens", out val))
-                    {
-                        int i;
-                        if (val != null && int.TryParse(val.ToString(), out i)) _budgetTokens = i;
+                        if (legacyThinking != null && bool.TryParse(legacyThinking.ToString(), out b))
+                        {
+                            if (!b) _reasoningEffort = "off";
+                            else if (cfg.TryGetValue("budgetTokens", out legacyBudget) && int.TryParse(legacyBudget?.ToString(), out int bt))
+                                _reasoningEffort = bt <= 2048 ? "low" : bt <= 8192 ? "medium" : bt <= 16384 ? "high" : "max";
+                            else _reasoningEffort = "high";
+                        }
                     }
                     if (cfg.TryGetValue("showThinking", out val))
                     {
@@ -118,6 +129,8 @@ namespace RTSys.PlugIn
                         if (s == "ansi" || s == "utf8") _basEncoding = s;
                         else _basEncoding = "auto";
                     }
+                    if (cfg.TryGetValue("toolMode", out val))
+                        _toolMode = AiToolPolicy.Normalize(val?.ToString());
 
                     // 缓存本类不管理的键，保存时写回。
                     _extraConfig.Clear();
@@ -131,7 +144,7 @@ namespace RTSys.PlugIn
             catch { }
         }
 
-        public void SaveConfig(string apiKey, string model, string apiUrl, bool? showToolStatus = null, bool? includeSkillImages = null, bool? enableControllerValidation = null, bool? enableThinking = null, int? budgetTokens = null, bool? showThinking = null, bool? memoryEnabled = null, bool? localizeThinking = null, bool? useChineseDocs = null, string lightModel = null, string dialectMode = null, string basEncoding = null)
+        public void SaveConfig(string apiKey, string model, string apiUrl, bool? showToolStatus = null, bool? includeSkillImages = null, bool? enableControllerValidation = null, string reasoningEffort = null, bool? showThinking = null, bool? memoryEnabled = null, bool? localizeThinking = null, bool? useChineseDocs = null, string lightModel = null, string dialectMode = null, string basEncoding = null, string toolMode = null)
         {
             _apiKey = apiKey;
             if (!string.IsNullOrEmpty(model)) _model = model;
@@ -144,8 +157,7 @@ namespace RTSys.PlugIn
                 _skillDetailCache.Clear(); // img stripping is cached per page; force re-read
             }
             if (enableControllerValidation.HasValue) _enableControllerValidation = enableControllerValidation.Value;
-            if (enableThinking.HasValue) _enableThinking = enableThinking.Value;
-            if (budgetTokens.HasValue) _budgetTokens = budgetTokens.Value;
+            if (reasoningEffort != null) _reasoningEffort = NormalizeReasoningEffort(reasoningEffort);
             if (showThinking.HasValue) _showThinking = showThinking.Value;
             if (memoryEnabled.HasValue) _memoryEnabled = memoryEnabled.Value;
             if (localizeThinking.HasValue) _localizeThinking = localizeThinking.Value;
@@ -165,7 +177,8 @@ namespace RTSys.PlugIn
                 if (basEncoding == "ansi" || basEncoding == "utf8") _basEncoding = basEncoding;
                 else _basEncoding = "auto";
             }
-            var json = _json.Serialize(new { apiKey = _apiKey, model = _model, lightModel = _lightModel ?? "", apiUrl = _apiUrl, showToolStatus = _showToolStatus, skillsInitialized = _skillsInitialized, includeSkillImages = _includeSkillImages, enableControllerValidation = _enableControllerValidation, enableThinking = _enableThinking, budgetTokens = _budgetTokens, showThinking = _showThinking, memoryEnabled = _memoryEnabled, localizeThinking = _localizeThinking, useChineseDocs = _useChineseDocs, dialectMode = _dialectMode, basEncoding = _basEncoding });
+            if (toolMode != null) _toolMode = AiToolPolicy.Normalize(toolMode);
+            var json = _json.Serialize(new { apiKey = _apiKey, model = _model, lightModel = _lightModel ?? "", apiUrl = _apiUrl, showToolStatus = _showToolStatus, skillsInitialized = _skillsInitialized, includeSkillImages = _includeSkillImages, enableControllerValidation = _enableControllerValidation, reasoningEffort = _reasoningEffort, showThinking = _showThinking, memoryEnabled = _memoryEnabled, localizeThinking = _localizeThinking, useChineseDocs = _useChineseDocs, dialectMode = _dialectMode, basEncoding = _basEncoding, toolMode = _toolMode });
 
             // 保留"未知键"（RTSysIP / projectDir / enableHttpApi / 用户自定义项）：
             // 1) 先写回本进程加载时缓存的未知键（即使配置文件此刻不可读也不丢）；
@@ -222,7 +235,7 @@ namespace RTSys.PlugIn
             return url;
         }
 
-        public string CurrentConfig => _json.Serialize(new { apiKey = _apiKey ?? "", model = _model ?? "", lightModel = _lightModel ?? "", apiUrl = _apiUrl ?? "", showToolStatus = _showToolStatus });
+        public string CurrentConfig => _json.Serialize(new { apiKey = _apiKey ?? "", model = _model ?? "", lightModel = _lightModel ?? "", apiUrl = _apiUrl ?? "", showToolStatus = _showToolStatus, toolMode = _toolMode });
         public bool ShowToolStatus => _showToolStatus;
         public bool SkillsInitialized => _skillsInitialized;
         public bool IncludeSkillImages => _includeSkillImages;
@@ -256,8 +269,8 @@ namespace RTSys.PlugIn
             _index = null; // force reload
             // 复用 SaveConfig 的合并逻辑，保留 RTSysIP / projectDir / enableHttpApi 等未知键。
             SaveConfig(_apiKey, _model, _apiUrl, _showToolStatus, _includeSkillImages,
-                _enableControllerValidation, _enableThinking, _budgetTokens, _showThinking,
-                _memoryEnabled, _localizeThinking, _useChineseDocs, _lightModel, _dialectMode);
+                _enableControllerValidation, _reasoningEffort, _showThinking,
+                _memoryEnabled, _localizeThinking, _useChineseDocs, _lightModel, _dialectMode, _basEncoding);
             return null;
         }
 
@@ -274,8 +287,22 @@ namespace RTSys.PlugIn
         public string Model => _model;
         public string LightModel => _lightModel;
         public string ApiUrl => _apiUrl;
-        public static bool EnableThinking => _enableThinking;
-        public static int BudgetTokens => _budgetTokens;
+        internal static string ToolMode => _toolMode;
+        public static string ReasoningEffort => _reasoningEffort;
+
+        internal static string NormalizeReasoningEffort(string effort)
+        {
+            if (string.IsNullOrEmpty(effort)) return "high";
+            switch (effort.Trim().ToLowerInvariant())
+            {
+                case "off": case "none": case "disabled": return "off";
+                case "low": case "minimal": return "low";
+                case "medium": case "mid": return "medium";
+                case "high": case "xhigh": return "high";
+                case "max": return "max";
+                default: return "high";
+            }
+        }
         public static bool ShowThinking => _showThinking;
         public static bool MemoryEnabled => _memoryEnabled;
         public static bool LocalizeThinking => _localizeThinking;

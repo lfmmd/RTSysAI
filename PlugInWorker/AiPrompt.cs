@@ -344,8 +344,16 @@ Keep the conclusion under ~2000 tokens. Quote exact syntax verbatim from docs �
                 if (!string.IsNullOrEmpty(activeFile))
                 {
                     var activePath = ProgramWorkspace.CurrentEditorPath;
-                    sb.AppendLine("- Active Editor File: " + (activePath ?? activeFile)
-                        + " (currently shown in the RTSys editor; \"this file\" / \"当前文件\" refers to this program)");
+                    if (activeFile.EndsWith(".hmi", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sb.AppendLine("- Active Editor File: " + (activePath ?? activeFile)
+                            + " (HMI page; HMI operations are temporarily disabled. Do not attempt to read or modify HMI content; explain that HMI operation is unavailable if asked.)");
+                    }
+                    else
+                    {
+                        sb.AppendLine("- Active Editor File: " + (activePath ?? activeFile)
+                            + " (currently shown in the RTSys editor; \"this file\" / \"当前文件\" refers to this program)");
+                    }
                 }
 
                 // 仅在已有活动连接时查询详细状态。

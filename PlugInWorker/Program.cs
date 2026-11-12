@@ -77,6 +77,7 @@ namespace RTSys.PlugIn.Worker
 
             _cts = new CancellationTokenSource();
 
+            ApiServer server = null;
             try
             {
                 // 启动自动初始化 Skill 数据：首次运行时把打包的 skills\ 复制到 %APPDATA%\RTSysAI\skills。
@@ -85,7 +86,7 @@ namespace RTSys.PlugIn.Worker
                 TryInitializeSkills();
 
                 // 启动 ApiServer（优先使用命令行/环境变量指定的端口）
-                var server = new ApiServer();
+                server = new ApiServer();
                 server.Start(port);
                 PlugInLog.Log($"ApiServer 启动 OK on port {server.Port}");
 
@@ -121,6 +122,7 @@ namespace RTSys.PlugIn.Worker
             }
             finally
             {
+                try { server?.Stop(); } catch { }
                 StopHeartbeat();
                 try { File.Delete(readyFile); } catch { }
                 PlugInLog.Log("Worker 已退出");

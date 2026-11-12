@@ -834,6 +834,10 @@ namespace RTSys.PlugIn
                             SendJson(ctx, 404, new { error = "Not found" });
                         break;
 
+                    case "hmi":
+                        SendJson(ctx, 403, new { success = false, error = "HMI API is temporarily disabled" });
+                        break;
+
                     case "programs":
                         HandleProgramsRoute(ctx, method, segments, rawSegments);
                         break;

@@ -1,0 +1,3420 @@
+{
+ "source": "live ReadProcessMemory probe (read-only) against running RTSys.exe",
+ "date": "2026-11-09",
+ "rtsys_pid": 14748,
+ "extmainhmi_base": "0x69a20000",
+ "feature_registry": {
+  "count": 521,
+  "unique_ids": 292,
+  "type_distribution": {
+   "1": 95,
+   "5": 6,
+   "3": 22,
+   "0": 37,
+   "2": 259,
+   "4": 69,
+   "6": 33
+  }
+ },
+ "control_registry": {
+  "count": 67,
+  "controls": [
+   {
+    "type": 600,
+    "name": "BitState"
+   },
+   {
+    "type": 601,
+    "name": "WordState"
+   },
+   {
+    "type": 602,
+    "name": "BitModify"
+   },
+   {
+    "type": 603,
+    "name": "WordModify"
+   },
+   {
+    "type": 604,
+    "name": "BitSwitch"
+   },
+   {
+    "type": 605,
+    "name": "WordSwitch"
+   },
+   {
+    "type": 606,
+    "name": "List"
+   },
+   {
+    "type": 607,
+    "name": "Slip"
+   },
+   {
+    "type": 608,
+    "name": "KeyButton"
+   },
+   {
+    "type": 609,
+    "name": "Button"
+   },
+   {
+    "type": 610,
+    "name": "KeyButton"
+   },
+   {
+    "type": 611,
+    "name": "String show"
+   },
+   {
+    "type": 612,
+    "name": "Value show"
+   },
+   {
+    "type": 616,
+    "name": "Animation"
+   },
+   {
+    "type": 620,
+    "name": "Timer"
+   },
+   {
+    "type": 621,
+    "name": "Timer"
+   },
+   {
+    "type": 622,
+    "name": "Pie Chart"
+   },
+   {
+    "type": 623,
+    "name": "Bar Chart"
+   },
+   {
+    "type": 624,
+    "name": "Meter"
+   },
+   {
+    "type": 625,
+    "name": "XY Chart"
+   },
+   {
+    "type": 626,
+    "name": "Trend Chart"
+   },
+   {
+    "type": 627,
+    "name": "Data Group Show"
+   },
+   {
+    "type": 630,
+    "name": "FlowBlock"
+   },
+   {
+    "type": 631,
+    "name": "FlowBlock"
+   },
+   {
+    "type": 635,
+    "name": "Event Show"
+   },
+   {
+    "type": 636,
+    "name": "Alarm Show"
+   },
+   {
+    "type": 637,
+    "name": "Alarm Bar"
+   },
+   {
+    "type": 640,
+    "name": "Timer"
+   },
+   {
+    "type": 641,
+    "name": "Timer"
+   },
+   {
+    "type": 645,
+    "name": "Table"
+   },
+   {
+    "type": 700,
+    "name": "Line/Polyline/Polygon"
+   },
+   {
+    "type": 701,
+    "name": "Ellipse/Arc/Sector"
+   },
+   {
+    "type": 702,
+    "name": "Rect"
+   },
+   {
+    "type": 703,
+    "name": "StaticText"
+   },
+   {
+    "type": 704,
+    "name": "Picture"
+   },
+   {
+    "type": 705,
+    "name": "Import"
+   },
+   {
+    "type": 706,
+    "name": "Bezier"
+   },
+   {
+    "type": 707,
+    "name": "Import"
+   },
+   {
+    "type": 708,
+    "name": "Import"
+   },
+   {
+    "type": 709,
+    "name": "Import"
+   },
+   {
+    "type": 710,
+    "name": "Import"
+   },
+   {
+    "type": 711,
+    "name": "Import"
+   },
+   {
+    "type": 712,
+    "name": "Scale"
+   },
+   {
+    "type": 713,
+    "name": "String show"
+   },
+   {
+    "type": 714,
+    "name": "File3Edit"
+   },
+   {
+    "type": 715,
+    "name": "CAD"
+   },
+   {
+    "type": 716,
+    "name": "File browser"
+   },
+   {
+    "type": 717,
+    "name": "Report view"
+   },
+   {
+    "type": 719,
+    "name": "Progress Bar"
+   },
+   {
+    "type": 720,
+    "name": "Dynamic Scale"
+   },
+   {
+    "type": 721,
+    "name": "Tree"
+   },
+   {
+    "type": 722,
+    "name": "Scheduling"
+   },
+   {
+    "type": 723,
+    "name": "FlowBlock"
+   },
+   {
+    "type": 724,
+    "name": "Bar Code"
+   },
+   {
+    "type": 725,
+    "name": "Radio Button"
+   },
+   {
+    "type": 726,
+    "name": "Check Box"
+   },
+   {
+    "type": 727,
+    "name": "Message Out"
+   },
+   {
+    "type": 728,
+    "name": "LayDate"
+   },
+   {
+    "type": 730,
+    "name": "Menu"
+   },
+   {
+    "type": 731,
+    "name": "Tab control"
+   },
+   {
+    "type": 732,
+    "name": "Spin Button"
+   },
+   {
+    "type": 733,
+    "name": "Group box"
+   },
+   {
+    "type": 734,
+    "name": "Panel"
+   },
+   {
+    "type": 735,
+    "name": "Recipe View"
+   },
+   {
+    "type": 736,
+    "name": "Basic Extend"
+   },
+   {
+    "type": 900,
+    "name": "File3Edit"
+   },
+   {
+    "type": 901,
+    "name": "Custom"
+   }
+  ]
+ },
+ "features": [
+  {
+   "id": 1000,
+   "sub": 0,
+   "type": 1,
+   "name": "Specify the Object number."
+  },
+  {
+   "id": 1001,
+   "sub": 0,
+   "type": 1,
+   "name": "Object display name."
+  },
+  {
+   "id": 1002,
+   "sub": 0,
+   "type": 5,
+   "name": "Sets the width resolution size of a window or control."
+  },
+  {
+   "id": 1002,
+   "sub": 1,
+   "type": 5,
+   "name": "Sets the height resolution size of a window or control."
+  },
+  {
+   "id": 1003,
+   "sub": 0,
+   "type": 5,
+   "name": "Sets the horizontal starting position of a window or control."
+  },
+  {
+   "id": 1003,
+   "sub": 1,
+   "type": 5,
+   "name": "Sets the vertical starting position of a window or control."
+  },
+  {
+   "id": 1004,
+   "sub": 0,
+   "type": 1,
+   "name": "One of them: TopLayer、MidLayer、BottomLayer."
+  },
+  {
+   "id": 1005,
+   "sub": 0,
+   "type": 3,
+   "name": "Number of control states (1 to 256)."
+  },
+  {
+   "id": 1006,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1007,
+   "sub": 0,
+   "type": 3,
+   "name": "The name of the text library, if empty, indicates the use of a text label."
+  },
+  {
+   "id": 1008,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the background image of the control from the picture file."
+  },
+  {
+   "id": 1009,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the background image of the control from the picture library."
+  },
+  {
+   "id": 1010,
+   "sub": 0,
+   "type": 2,
+   "name": "One of them: None, Back Picture, Back PictureLib."
+  },
+  {
+   "id": 1011,
+   "sub": 0,
+   "type": 1,
+   "name": "The specified device."
+  },
+  {
+   "id": 1011,
+   "sub": 1,
+   "type": 1,
+   "name": "Select register type."
+  },
+  {
+   "id": 1011,
+   "sub": 2,
+   "type": 1,
+   "name": "Sets the register number."
+  },
+  {
+   "id": 1011,
+   "sub": 3,
+   "type": 1,
+   "name": "The @ register can take variables or functions defined in BASIC."
+  },
+  {
+   "id": 1012,
+   "sub": 0,
+   "type": 1,
+   "name": "The specified device."
+  },
+  {
+   "id": 1012,
+   "sub": 1,
+   "type": 1,
+   "name": "Select register type."
+  },
+  {
+   "id": 1012,
+   "sub": 2,
+   "type": 1,
+   "name": "Sets the register number."
+  },
+  {
+   "id": 1012,
+   "sub": 3,
+   "type": 1,
+   "name": "The @ register can take variables or functions defined in BASIC."
+  },
+  {
+   "id": 1013,
+   "sub": 0,
+   "type": 1,
+   "name": "The specified device."
+  },
+  {
+   "id": 1013,
+   "sub": 1,
+   "type": 1,
+   "name": "Select register type."
+  },
+  {
+   "id": 1013,
+   "sub": 2,
+   "type": 1,
+   "name": "Sets the register number."
+  },
+  {
+   "id": 1013,
+   "sub": 3,
+   "type": 1,
+   "name": "The @ register can take variables or functions defined in BASIC."
+  },
+  {
+   "id": 1014,
+   "sub": 0,
+   "type": 1,
+   "name": "The specified device."
+  },
+  {
+   "id": 1014,
+   "sub": 1,
+   "type": 1,
+   "name": "Select register type."
+  },
+  {
+   "id": 1014,
+   "sub": 2,
+   "type": 1,
+   "name": "Sets the register number."
+  },
+  {
+   "id": 1014,
+   "sub": 3,
+   "type": 1,
+   "name": "The @ register can take variables or functions defined in BASIC."
+  },
+  {
+   "id": 1015,
+   "sub": 0,
+   "type": 1,
+   "name": "Minimum keystroke time (ms)."
+  },
+  {
+   "id": 1016,
+   "sub": 0,
+   "type": 0,
+   "name": "Whether is the action when releasing."
+  },
+  {
+   "id": 1018,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1019,
+   "sub": 0,
+   "type": 0,
+   "name": "The specified device."
+  },
+  {
+   "id": 1019,
+   "sub": 1,
+   "type": 0,
+   "name": "Select register type."
+  },
+  {
+   "id": 1019,
+   "sub": 2,
+   "type": 0,
+   "name": "Sets the register number."
+  },
+  {
+   "id": 1019,
+   "sub": 3,
+   "type": 0,
+   "name": "The @ register can take variables or functions defined in BASIC."
+  },
+  {
+   "id": 1020,
+   "sub": 0,
+   "type": 1,
+   "name": "Whether the numeric element enables input."
+  },
+  {
+   "id": 1021,
+   "sub": 0,
+   "type": 1,
+   "name": "Whether the control element is displayed, when the Valid Control is enabled, the main control is Valid Control."
+  },
+  {
+   "id": 1023,
+   "sub": 0,
+   "type": 1,
+   "name": "Send a bit notification after modification (set True or False)."
+  },
+  {
+   "id": 1024,
+   "sub": 0,
+   "type": 1,
+   "name": "The display or hiding of the component is controlled by the bit, which is displayed when the control bit is ON and hidden when it is OFF."
+  },
+  {
+   "id": 1025,
+   "sub": 0,
+   "type": 1,
+   "name": "Data type setting for a numeric element."
+  },
+  {
+   "id": 1026,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the length of the character element operation character. (0 to 1023)"
+  },
+  {
+   "id": 1028,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1029,
+   "sub": 0,
+   "type": 2,
+   "name": "The background color of the control."
+  },
+  {
+   "id": 1030,
+   "sub": 0,
+   "type": 2,
+   "name": "Chamfering radius."
+  },
+  {
+   "id": 1033,
+   "sub": 0,
+   "type": 0,
+   "name": "Need to draw vector graphics."
+  },
+  {
+   "id": 1034,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to draw the border of the control."
+  },
+  {
+   "id": 1034,
+   "sub": 1,
+   "type": 2,
+   "name": "Select the color of the control border."
+  },
+  {
+   "id": 1034,
+   "sub": 2,
+   "type": 2,
+   "name": "Select the width of the control border."
+  },
+  {
+   "id": 1035,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to fill color."
+  },
+  {
+   "id": 1036,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the color to fill."
+  },
+  {
+   "id": 1040,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the length of the character element operation character (0 to 255)."
+  },
+  {
+   "id": 1040,
+   "sub": 1,
+   "type": 2,
+   "name": "Number of decimal points. (0 to 255)"
+  },
+  {
+   "id": 1040,
+   "sub": 2,
+   "type": 2,
+   "name": "Set the value element to display as *."
+  },
+  {
+   "id": 1041,
+   "sub": 0,
+   "type": 2,
+   "name": "Input lower limit."
+  },
+  {
+   "id": 1041,
+   "sub": 1,
+   "type": 2,
+   "name": "Input upper limit."
+  },
+  {
+   "id": 1042,
+   "sub": 0,
+   "type": 1,
+   "name": "Bind the physical keys on the teaching box (RTHmi help for keycode value lookup)."
+  },
+  {
+   "id": 1043,
+   "sub": 0,
+   "type": 1,
+   "name": "Bind virtual key."
+  },
+  {
+   "id": 1044,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the color of the selected part of the list element."
+  },
+  {
+   "id": 1045,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the list control to be list-based or drop-down."
+  },
+  {
+   "id": 1046,
+   "sub": 0,
+   "type": 2,
+   "name": "The color currently displayed."
+  },
+  {
+   "id": 1047,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1048,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1049,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1050,
+   "sub": 0,
+   "type": 4,
+   "name": "Action performed by the key."
+  },
+  {
+   "id": 1050,
+   "sub": 1,
+   "type": 4,
+   "name": "Whether is the action when releasing."
+  },
+  {
+   "id": 1050,
+   "sub": 2,
+   "type": 4,
+   "name": "The number of Windows you need to operate on."
+  },
+  {
+   "id": 1050,
+   "sub": 3,
+   "type": 4,
+   "name": "Close with the parent window."
+  },
+  {
+   "id": 1050,
+   "sub": 4,
+   "type": 4,
+   "name": "Write the set value to the register after the keystroke."
+  },
+  {
+   "id": 1050,
+   "sub": 5,
+   "type": 4,
+   "name": "The sub function to be called after the key press."
+  },
+  {
+   "id": 1050,
+   "sub": 6,
+   "type": 4,
+   "name": "Virtual key code."
+  },
+  {
+   "id": 1050,
+   "sub": 7,
+   "type": 4,
+   "name": "Character components."
+  },
+  {
+   "id": 1050,
+   "sub": 8,
+   "type": 4,
+   "name": "Bind the physical keys on the teaching box (RTHmi help for keycode value lookup)."
+  },
+  {
+   "id": 1051,
+   "sub": 0,
+   "type": 4,
+   "name": "Action performed by the key."
+  },
+  {
+   "id": 1051,
+   "sub": 1,
+   "type": 4,
+   "name": "Whether is the action when releasing."
+  },
+  {
+   "id": 1051,
+   "sub": 2,
+   "type": 4,
+   "name": "The number of Windows you need to operate on."
+  },
+  {
+   "id": 1051,
+   "sub": 3,
+   "type": 4,
+   "name": "Close with the parent window."
+  },
+  {
+   "id": 1051,
+   "sub": 4,
+   "type": 4,
+   "name": "Write the set value to the register after the keystroke."
+  },
+  {
+   "id": 1051,
+   "sub": 5,
+   "type": 4,
+   "name": "The sub function to be called after the key press."
+  },
+  {
+   "id": 1051,
+   "sub": 6,
+   "type": 4,
+   "name": "Virtual key code."
+  },
+  {
+   "id": 1051,
+   "sub": 7,
+   "type": 4,
+   "name": "Character components."
+  },
+  {
+   "id": 1051,
+   "sub": 8,
+   "type": 4,
+   "name": "Bind the physical keys on the teaching box (RTHmi help for keycode value lookup)."
+  },
+  {
+   "id": 1052,
+   "sub": 0,
+   "type": 4,
+   "name": "Action performed by the key."
+  },
+  {
+   "id": 1052,
+   "sub": 1,
+   "type": 4,
+   "name": "Whether is the action when releasing."
+  },
+  {
+   "id": 1052,
+   "sub": 2,
+   "type": 4,
+   "name": "The number of Windows you need to operate on."
+  },
+  {
+   "id": 1052,
+   "sub": 3,
+   "type": 4,
+   "name": "Close with the parent window."
+  },
+  {
+   "id": 1052,
+   "sub": 4,
+   "type": 4,
+   "name": "Write the set value to the register after the keystroke."
+  },
+  {
+   "id": 1052,
+   "sub": 5,
+   "type": 4,
+   "name": "The sub function to be called after the key press."
+  },
+  {
+   "id": 1052,
+   "sub": 6,
+   "type": 4,
+   "name": "Virtual key code."
+  },
+  {
+   "id": 1052,
+   "sub": 7,
+   "type": 4,
+   "name": "Character components."
+  },
+  {
+   "id": 1052,
+   "sub": 8,
+   "type": 4,
+   "name": "Bind the physical keys on the teaching box (RTHmi help for keycode value lookup)."
+  },
+  {
+   "id": 1053,
+   "sub": 0,
+   "type": 4,
+   "name": "Action performed by the key."
+  },
+  {
+   "id": 1053,
+   "sub": 1,
+   "type": 4,
+   "name": "Whether is the action when releasing."
+  },
+  {
+   "id": 1053,
+   "sub": 2,
+   "type": 4,
+   "name": "The number of Windows you need to operate on."
+  },
+  {
+   "id": 1053,
+   "sub": 3,
+   "type": 4,
+   "name": "Close with the parent window."
+  },
+  {
+   "id": 1053,
+   "sub": 4,
+   "type": 4,
+   "name": "Write the set value to the register after the keystroke."
+  },
+  {
+   "id": 1053,
+   "sub": 5,
+   "type": 4,
+   "name": "The sub function to be called after the key press."
+  },
+  {
+   "id": 1053,
+   "sub": 6,
+   "type": 4,
+   "name": "Virtual key code."
+  },
+  {
+   "id": 1053,
+   "sub": 7,
+   "type": 4,
+   "name": "Character components."
+  },
+  {
+   "id": 1053,
+   "sub": 8,
+   "type": 4,
+   "name": "Bind the physical keys on the teaching box (RTHmi help for keycode value lookup)."
+  },
+  {
+   "id": 1054,
+   "sub": 0,
+   "type": 4,
+   "name": "Action performed by the key."
+  },
+  {
+   "id": 1054,
+   "sub": 1,
+   "type": 4,
+   "name": "Whether is the action when releasing."
+  },
+  {
+   "id": 1054,
+   "sub": 2,
+   "type": 4,
+   "name": "The number of Windows you need to operate on."
+  },
+  {
+   "id": 1054,
+   "sub": 3,
+   "type": 4,
+   "name": "Close with the parent window."
+  },
+  {
+   "id": 1054,
+   "sub": 4,
+   "type": 4,
+   "name": "Write the set value to the register after the keystroke."
+  },
+  {
+   "id": 1054,
+   "sub": 5,
+   "type": 4,
+   "name": "The sub function to be called after the key press."
+  },
+  {
+   "id": 1054,
+   "sub": 6,
+   "type": 4,
+   "name": "Virtual key code."
+  },
+  {
+   "id": 1054,
+   "sub": 7,
+   "type": 4,
+   "name": "Character components."
+  },
+  {
+   "id": 1054,
+   "sub": 8,
+   "type": 4,
+   "name": "Bind the physical keys on the teaching box (RTHmi help for keycode value lookup)."
+  },
+  {
+   "id": 1060,
+   "sub": 0,
+   "type": 1,
+   "name": "Type of event."
+  },
+  {
+   "id": 1061,
+   "sub": 0,
+   "type": 1,
+   "name": "Level of event."
+  },
+  {
+   "id": 1062,
+   "sub": 0,
+   "type": 1,
+   "name": "The conditions that trigger the event."
+  },
+  {
+   "id": 1063,
+   "sub": 0,
+   "type": 1,
+   "name": "Comparison value."
+  },
+  {
+   "id": 1064,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1065,
+   "sub": 0,
+   "type": 1,
+   "name": "Display the event category range, Only those within the range will be displayed."
+  },
+  {
+   "id": 1065,
+   "sub": 1,
+   "type": 1,
+   "name": "Display the event category range, Only those within the range will be displayed."
+  },
+  {
+   "id": 1066,
+   "sub": 0,
+   "type": 1,
+   "name": "Write data on confirmation."
+  },
+  {
+   "id": 1070,
+   "sub": 0,
+   "type": 1,
+   "name": "The window number of the soft keyboard."
+  },
+  {
+   "id": 1071,
+   "sub": 0,
+   "type": 1,
+   "name": "The sub function that specifies the behavior of the component is explained in RTHmi Help Chapter 5."
+  },
+  {
+   "id": 1072,
+   "sub": 0,
+   "type": 1,
+   "name": "The sub function that specifies the behavior of the component is explained in RTHmi Help Chapter 5."
+  },
+  {
+   "id": 1073,
+   "sub": 0,
+   "type": 1,
+   "name": "Whether to loop, whether to continuously trigger the timer."
+  },
+  {
+   "id": 1074,
+   "sub": 0,
+   "type": 1,
+   "name": "Trigger period of the timer."
+  },
+  {
+   "id": 1075,
+   "sub": 0,
+   "type": 1,
+   "name": "Soft keyboard input display, generally used for keyboard Windows."
+  },
+  {
+   "id": 1076,
+   "sub": 0,
+   "type": 1,
+   "name": "The TABLE where the current component's data is located."
+  },
+  {
+   "id": 1078,
+   "sub": 0,
+   "type": 4,
+   "name": "The function is called when the key is pressed."
+  },
+  {
+   "id": 1079,
+   "sub": 0,
+   "type": 4,
+   "name": "Call the function when the key is released."
+  },
+  {
+   "id": 1080,
+   "sub": 0,
+   "type": 2,
+   "name": "Control becomes an image (variable label font)."
+  },
+  {
+   "id": 1081,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1082,
+   "sub": 0,
+   "type": 2,
+   "name": null
+  },
+  {
+   "id": 1082,
+   "sub": 1,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1082,
+   "sub": 2,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1082,
+   "sub": 3,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1082,
+   "sub": 4,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1082,
+   "sub": 5,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1083,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1084,
+   "sub": 0,
+   "type": 2,
+   "name": "Use formatting text background."
+  },
+  {
+   "id": 1090,
+   "sub": 0,
+   "type": 2,
+   "name": "Indicates that the control is multiline text."
+  },
+  {
+   "id": 1100,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the width of the drawn line segment (1 to 20)."
+  },
+  {
+   "id": 1101,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the style of the line segment that you want to draw."
+  },
+  {
+   "id": 1102,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the starting shape of the line segment."
+  },
+  {
+   "id": 1103,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the starting size of the line segment."
+  },
+  {
+   "id": 1104,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the endpoint shape of the line segment."
+  },
+  {
+   "id": 1105,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the endpoint size of the line segment."
+  },
+  {
+   "id": 1106,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the style to fill."
+  },
+  {
+   "id": 1107,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the color of the fill style."
+  },
+  {
+   "id": 1108,
+   "sub": 0,
+   "type": 2,
+   "name": "One of them: Horizontal, Vertical."
+  },
+  {
+   "id": 1109,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the number of internal segments of the scale."
+  },
+  {
+   "id": 1120,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the number of rows in the table."
+  },
+  {
+   "id": 1121,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the number of columns in the table."
+  },
+  {
+   "id": 1122,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1123,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the color of the box outside the table."
+  },
+  {
+   "id": 1124,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the line width of the outer box of the table (1 to 20)."
+  },
+  {
+   "id": 1125,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the style of the line segment that draws the outer box."
+  },
+  {
+   "id": 1126,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the color of the table grid."
+  },
+  {
+   "id": 1127,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the line segment width of the table grid (1 to 20)."
+  },
+  {
+   "id": 1128,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the style of the line segment to draw the grid box."
+  },
+  {
+   "id": 1129,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the alignment of the table contents."
+  },
+  {
+   "id": 1140,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to use the original size of the image."
+  },
+  {
+   "id": 1141,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the boundary size of the slider."
+  },
+  {
+   "id": 1142,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the direction of the slider."
+  },
+  {
+   "id": 1143,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the scale for each block of the slider."
+  },
+  {
+   "id": 1144,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the color of the slider scale."
+  },
+  {
+   "id": 1145,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the number of segments on the slider's long scale."
+  },
+  {
+   "id": 1146,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the number of segments on the slider's short scale."
+  },
+  {
+   "id": 1147,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the style of the slider."
+  },
+  {
+   "id": 1148,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets the color of the slider."
+  },
+  {
+   "id": 1150,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the color of slide 1."
+  },
+  {
+   "id": 1150,
+   "sub": 1,
+   "type": 2,
+   "name": "Set the color of slide 2."
+  },
+  {
+   "id": 1151,
+   "sub": 0,
+   "type": 2,
+   "name": "Display scale or not."
+  },
+  {
+   "id": 1152,
+   "sub": 0,
+   "type": 2,
+   "name": "Display symbols or not."
+  },
+  {
+   "id": 1153,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the horizontal starting position of the slider."
+  },
+  {
+   "id": 1153,
+   "sub": 1,
+   "type": 2,
+   "name": "Set the vertical starting position of the slider."
+  },
+  {
+   "id": 1154,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the width resolution size of the slider."
+  },
+  {
+   "id": 1154,
+   "sub": 1,
+   "type": 2,
+   "name": "Set the height resolution size of the slider."
+  },
+  {
+   "id": 1160,
+   "sub": 0,
+   "type": 1,
+   "name": "The function that makes the drop-down call."
+  },
+  {
+   "id": 1161,
+   "sub": 0,
+   "type": 2,
+   "name": "One of them: Pop down, Pop up."
+  },
+  {
+   "id": 1162,
+   "sub": 0,
+   "type": 2,
+   "name": "Line spacing, equal spacing up and down (0 to 100)."
+  },
+  {
+   "id": 1163,
+   "sub": 0,
+   "type": 1,
+   "name": "Select the function to call."
+  },
+  {
+   "id": 1164,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the string element to display as *."
+  },
+  {
+   "id": 1165,
+   "sub": 0,
+   "type": 1,
+   "name": "TRUE: allows the instruction to add items. FALSE: indicates the static length."
+  },
+  {
+   "id": 1166,
+   "sub": 0,
+   "type": 1,
+   "name": "Dynamic item space size."
+  },
+  {
+   "id": 1200,
+   "sub": 0,
+   "type": 2,
+   "name": "Displays horizontal scroll bar."
+  },
+  {
+   "id": 1201,
+   "sub": 0,
+   "type": 2,
+   "name": "Displays vertical scroll bar."
+  },
+  {
+   "id": 1202,
+   "sub": 0,
+   "type": 2,
+   "name": "Cursor back color."
+  },
+  {
+   "id": 1202,
+   "sub": 1,
+   "type": 2,
+   "name": "Cursor font color."
+  },
+  {
+   "id": 1203,
+   "sub": 0,
+   "type": 6,
+   "name": "The number of channels displaying the xy chart."
+  },
+  {
+   "id": 1203,
+   "sub": 1,
+   "type": 3,
+   "name": "Number of chart channels."
+  },
+  {
+   "id": 1203,
+   "sub": 2,
+   "type": 3,
+   "name": "Number of data group channels."
+  },
+  {
+   "id": 1204,
+   "sub": 0,
+   "type": 1,
+   "name": "The address interval of consecutive registers."
+  },
+  {
+   "id": 1205,
+   "sub": 0,
+   "type": 1,
+   "name": "The function called when the control modifies the data."
+  },
+  {
+   "id": 1210,
+   "sub": 0,
+   "type": 6,
+   "name": "Display the date format, such as %Y/%m/%d, represents year/month/day."
+  },
+  {
+   "id": 1211,
+   "sub": 0,
+   "type": 6,
+   "name": "Display the time format, such as %H:%M:%S to show hours/minutes/seconds."
+  },
+  {
+   "id": 1212,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the blinking mode of the bstate control."
+  },
+  {
+   "id": 1213,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the blinking time(ms) of the bstate control."
+  },
+  {
+   "id": 1214,
+   "sub": 0,
+   "type": 2,
+   "name": "Valid for GIF in Back PictureLib. 0: loop; >0: play count."
+  },
+  {
+   "id": 1215,
+   "sub": 0,
+   "type": 2,
+   "name": "The distance between the content area and the border."
+  },
+  {
+   "id": 1217,
+   "sub": 0,
+   "type": 4,
+   "name": "Sets the start and end time of the schedule."
+  },
+  {
+   "id": 1250,
+   "sub": 0,
+   "type": 1,
+   "name": "Set the channel number of the file3 (0 to 7)."
+  },
+  {
+   "id": 1251,
+   "sub": 0,
+   "type": 2,
+   "name": "Display line numbers."
+  },
+  {
+   "id": 1252,
+   "sub": 0,
+   "type": 2,
+   "name": "Line number position width."
+  },
+  {
+   "id": 1253,
+   "sub": 0,
+   "type": 2,
+   "name": "Display file Information."
+  },
+  {
+   "id": 1260,
+   "sub": 0,
+   "type": 2,
+   "name": "Use layer colors."
+  },
+  {
+   "id": 1261,
+   "sub": 0,
+   "type": 2,
+   "name": "Set vect colors."
+  },
+  {
+   "id": 1262,
+   "sub": 0,
+   "type": 2,
+   "name": "Set empty colors."
+  },
+  {
+   "id": 1263,
+   "sub": 0,
+   "type": 2,
+   "name": "Set select colors."
+  },
+  {
+   "id": 1264,
+   "sub": 0,
+   "type": 2,
+   "name": "Set secondary colors."
+  },
+  {
+   "id": 1270,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1280,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1281,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 1300,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to display a circular progress bar type."
+  },
+  {
+   "id": 1301,
+   "sub": 0,
+   "type": 2,
+   "name": "Display progress value or not."
+  },
+  {
+   "id": 1301,
+   "sub": 1,
+   "type": 2,
+   "name": "Display progress value as a numeric value(true) or a percentage(false)."
+  },
+  {
+   "id": 1301,
+   "sub": 2,
+   "type": 2,
+   "name": "Number of decimal points. (0 to 6)"
+  },
+  {
+   "id": 1302,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the direction of the progress bar."
+  },
+  {
+   "id": 1302,
+   "sub": 1,
+   "type": 2,
+   "name": "Select the style of progress bar."
+  },
+  {
+   "id": 1302,
+   "sub": 2,
+   "type": 2,
+   "name": "Set the corner radius of the progress bar."
+  },
+  {
+   "id": 1303,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the direction of the circular progress bar."
+  },
+  {
+   "id": 1303,
+   "sub": 1,
+   "type": 2,
+   "name": "Set the width of the outer ring of the circular progress bar."
+  },
+  {
+   "id": 1303,
+   "sub": 2,
+   "type": 2,
+   "name": "Set the width of the inner ring of the circular progress bar."
+  },
+  {
+   "id": 1305,
+   "sub": 0,
+   "type": 2,
+   "name": "The start angle of the circle.(0~359)"
+  },
+  {
+   "id": 1305,
+   "sub": 1,
+   "type": 2,
+   "name": "The end angle of the circle.(0~359)"
+  },
+  {
+   "id": 1305,
+   "sub": 2,
+   "type": 2,
+   "name": "Select the direction of the pie chart."
+  },
+  {
+   "id": 1305,
+   "sub": 3,
+   "type": 2,
+   "name": "Set the range size of the center point."
+  },
+  {
+   "id": 1306,
+   "sub": 0,
+   "type": 2,
+   "name": "Pie chart data display type."
+  },
+  {
+   "id": 1306,
+   "sub": 1,
+   "type": 2,
+   "name": "Number of decimal points. (0 to 6)"
+  },
+  {
+   "id": 1307,
+   "sub": 0,
+   "type": 2,
+   "name": "Circular bar chart or not."
+  },
+  {
+   "id": 1308,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the direction of the chart."
+  },
+  {
+   "id": 1308,
+   "sub": 1,
+   "type": 2,
+   "name": "Set the percentage of the display width of the bar chart to the width of the control."
+  },
+  {
+   "id": 1308,
+   "sub": 2,
+   "type": 2,
+   "name": "Display offset or not, if true display shifted from the original position."
+  },
+  {
+   "id": 1308,
+   "sub": 3,
+   "type": 2,
+   "name": "Set the original position for offset display."
+  },
+  {
+   "id": 1309,
+   "sub": 0,
+   "type": 2,
+   "name": "Alarm lower limit value, switch lower limit color when less than this value."
+  },
+  {
+   "id": 1309,
+   "sub": 1,
+   "type": 2,
+   "name": "Alarm upper limit value, switch upper limit color when greater than the value."
+  },
+  {
+   "id": 1309,
+   "sub": 2,
+   "type": 2,
+   "name": "Alarm lower limit color."
+  },
+  {
+   "id": 1309,
+   "sub": 3,
+   "type": 2,
+   "name": "Alarm upper limit color."
+  },
+  {
+   "id": 1310,
+   "sub": 0,
+   "type": 2,
+   "name": "Alarm if target value is reached."
+  },
+  {
+   "id": 1310,
+   "sub": 1,
+   "type": 2,
+   "name": "Target alarm value."
+  },
+  {
+   "id": 1310,
+   "sub": 2,
+   "type": 2,
+   "name": "Allowable error for target alarm value."
+  },
+  {
+   "id": 1310,
+   "sub": 3,
+   "type": 2,
+   "name": "Target alarm color."
+  },
+  {
+   "id": 1311,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to display the full circle or only the defined angle range."
+  },
+  {
+   "id": 1312,
+   "sub": 0,
+   "type": 2,
+   "name": "Display range indicator or not."
+  },
+  {
+   "id": 1312,
+   "sub": 1,
+   "type": 2,
+   "name": "Range indicator lower limit value."
+  },
+  {
+   "id": 1312,
+   "sub": 2,
+   "type": 2,
+   "name": "Range indicator upper limit value."
+  },
+  {
+   "id": 1312,
+   "sub": 3,
+   "type": 2,
+   "name": "Range indicator lower limit color."
+  },
+  {
+   "id": 1312,
+   "sub": 4,
+   "type": 2,
+   "name": "Range indicator upper limit color."
+  },
+  {
+   "id": 1312,
+   "sub": 5,
+   "type": 2,
+   "name": "Indicate the color within the range."
+  },
+  {
+   "id": 1312,
+   "sub": 6,
+   "type": 2,
+   "name": "The range indicator shows the radius."
+  },
+  {
+   "id": 1312,
+   "sub": 7,
+   "type": 2,
+   "name": "Range indicator display width."
+  },
+  {
+   "id": 1313,
+   "sub": 0,
+   "type": 2,
+   "name": "Meter needle style."
+  },
+  {
+   "id": 1313,
+   "sub": 1,
+   "type": 2,
+   "name": "Meter needle width."
+  },
+  {
+   "id": 1313,
+   "sub": 2,
+   "type": 2,
+   "name": "Meter needle length."
+  },
+  {
+   "id": 1313,
+   "sub": 3,
+   "type": 2,
+   "name": "Meter needle edge color."
+  },
+  {
+   "id": 1313,
+   "sub": 4,
+   "type": 2,
+   "name": "Meter needle internal color."
+  },
+  {
+   "id": 1314,
+   "sub": 0,
+   "type": 2,
+   "name": "Meter axis style."
+  },
+  {
+   "id": 1314,
+   "sub": 1,
+   "type": 2,
+   "name": "Meter axis radius."
+  },
+  {
+   "id": 1314,
+   "sub": 2,
+   "type": 2,
+   "name": "Meter axis edge color."
+  },
+  {
+   "id": 1314,
+   "sub": 3,
+   "type": 2,
+   "name": "Meter axis internal color."
+  },
+  {
+   "id": 1315,
+   "sub": 0,
+   "type": 2,
+   "name": "Display scale or not."
+  },
+  {
+   "id": 1315,
+   "sub": 1,
+   "type": 2,
+   "name": "Display scale frame or not."
+  },
+  {
+   "id": 1315,
+   "sub": 2,
+   "type": 2,
+   "name": "Sets the number of segments on the long scale."
+  },
+  {
+   "id": 1315,
+   "sub": 3,
+   "type": 2,
+   "name": "Sets the number of segments on the short scale."
+  },
+  {
+   "id": 1315,
+   "sub": 4,
+   "type": 2,
+   "name": "The length of the main scale."
+  },
+  {
+   "id": 1315,
+   "sub": 5,
+   "type": 2,
+   "name": "The radius of the scale display."
+  },
+  {
+   "id": 1315,
+   "sub": 6,
+   "type": 2,
+   "name": "Set the color of the scale."
+  },
+  {
+   "id": 1315,
+   "sub": 7,
+   "type": 2,
+   "name": "Display symbols or not."
+  },
+  {
+   "id": 1315,
+   "sub": 8,
+   "type": 2,
+   "name": "Number of decimal points. (0 to 6)"
+  },
+  {
+   "id": 1315,
+   "sub": 9,
+   "type": 2,
+   "name": "The radius displayed by the symbol."
+  },
+  {
+   "id": 1320,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to display the path."
+  },
+  {
+   "id": 1321,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to display the title."
+  },
+  {
+   "id": 1321,
+   "sub": 1,
+   "type": 2,
+   "name": "Height of the title."
+  },
+  {
+   "id": 1322,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to display the file name."
+  },
+  {
+   "id": 1322,
+   "sub": 1,
+   "type": 2,
+   "name": "Whether to display the file size."
+  },
+  {
+   "id": 1322,
+   "sub": 2,
+   "type": 2,
+   "name": "Whether to display the file type."
+  },
+  {
+   "id": 1322,
+   "sub": 3,
+   "type": 2,
+   "name": "Whether to display the file modification time."
+  },
+  {
+   "id": 1323,
+   "sub": 0,
+   "type": 2,
+   "name": "Column width of file name."
+  },
+  {
+   "id": 1323,
+   "sub": 1,
+   "type": 2,
+   "name": "Column width of file size."
+  },
+  {
+   "id": 1323,
+   "sub": 2,
+   "type": 2,
+   "name": "Column width of file type."
+  },
+  {
+   "id": 1323,
+   "sub": 3,
+   "type": 2,
+   "name": "Column width of file modification time."
+  },
+  {
+   "id": 1324,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the icon for folders and files."
+  },
+  {
+   "id": 1325,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether to display the content of header row."
+  },
+  {
+   "id": 1325,
+   "sub": 1,
+   "type": 2,
+   "name": "Display height of header row."
+  },
+  {
+   "id": 1325,
+   "sub": 2,
+   "type": 2,
+   "name": "Whether to display the contents of header column."
+  },
+  {
+   "id": 1325,
+   "sub": 3,
+   "type": 2,
+   "name": "Display width of header column."
+  },
+  {
+   "id": 1327,
+   "sub": 0,
+   "type": 3,
+   "name": "Edit cell content."
+  },
+  {
+   "id": 1328,
+   "sub": 0,
+   "type": 2,
+   "name": "The height of a row."
+  },
+  {
+   "id": 1329,
+   "sub": 0,
+   "type": 2,
+   "name": "The width of a column."
+  },
+  {
+   "id": 1330,
+   "sub": 0,
+   "type": 4,
+   "name": "The function is called when the event is confirmed."
+  },
+  {
+   "id": 1332,
+   "sub": 0,
+   "type": 6,
+   "name": "Display item settings."
+  },
+  {
+   "id": 1332,
+   "sub": 1,
+   "type": 6,
+   "name": null
+  },
+  {
+   "id": 1332,
+   "sub": 2,
+   "type": 6,
+   "name": null
+  },
+  {
+   "id": 1332,
+   "sub": 3,
+   "type": 6,
+   "name": null
+  },
+  {
+   "id": 1333,
+   "sub": 0,
+   "type": 6,
+   "name": "Item show character."
+  },
+  {
+   "id": 1334,
+   "sub": 0,
+   "type": 2,
+   "name": "The font color displayed after the event is Restored."
+  },
+  {
+   "id": 1335,
+   "sub": 0,
+   "type": 2,
+   "name": "The font back displayed after the event is Restored."
+  },
+  {
+   "id": 1336,
+   "sub": 0,
+   "type": 1,
+   "name": "Event Display Mode."
+  },
+  {
+   "id": 1337,
+   "sub": 0,
+   "type": 4,
+   "name": "The scrolling display speed of the alarm content."
+  },
+  {
+   "id": 1338,
+   "sub": 0,
+   "type": 6,
+   "name": "Event list sorting direction."
+  },
+  {
+   "id": 1338,
+   "sub": 1,
+   "type": 6,
+   "name": "Event list sorting method."
+  },
+  {
+   "id": 1339,
+   "sub": 0,
+   "type": 2,
+   "name": "Font size."
+  },
+  {
+   "id": 1340,
+   "sub": 0,
+   "type": 4,
+   "name": "Confirming the event method."
+  },
+  {
+   "id": 1341,
+   "sub": 0,
+   "type": 2,
+   "name": "The font color displayed after the event is confirmed."
+  },
+  {
+   "id": 1341,
+   "sub": 1,
+   "type": 2,
+   "name": "The back color displayed after the event is confirmed."
+  },
+  {
+   "id": 1342,
+   "sub": 0,
+   "type": 2,
+   "name": "Dispaly grid or not."
+  },
+  {
+   "id": 1342,
+   "sub": 1,
+   "type": 2,
+   "name": "Grid color."
+  },
+  {
+   "id": 1350,
+   "sub": 0,
+   "type": 2,
+   "name": "True: The column width is fixed. False: The column width can be stretched."
+  },
+  {
+   "id": 1351,
+   "sub": 0,
+   "type": 2,
+   "name": "True: The row height is fixed. False: The row height can be stretched."
+  },
+  {
+   "id": 1352,
+   "sub": 0,
+   "type": 1,
+   "name": "Function that is called when you double-click."
+  },
+  {
+   "id": 1400,
+   "sub": 0,
+   "type": 2,
+   "name": "The number of points that can be displayed on a page."
+  },
+  {
+   "id": 1401,
+   "sub": 0,
+   "type": 6,
+   "name": "The max number of record points for each channel.(2~1024)"
+  },
+  {
+   "id": 1402,
+   "sub": 0,
+   "type": 2,
+   "name": "Dispaly grid or not."
+  },
+  {
+   "id": 1402,
+   "sub": 1,
+   "type": 2,
+   "name": "Grid color."
+  },
+  {
+   "id": 1402,
+   "sub": 2,
+   "type": 2,
+   "name": "Sets the number of columns in the grid."
+  },
+  {
+   "id": 1402,
+   "sub": 3,
+   "type": 2,
+   "name": "Sets the number of rows in the grid."
+  },
+  {
+   "id": 1403,
+   "sub": 0,
+   "type": 1,
+   "name": "Use view line or not, output the view result to the consecutive register."
+  },
+  {
+   "id": 1403,
+   "sub": 1,
+   "type": 1,
+   "name": "Sightline color."
+  },
+  {
+   "id": 1404,
+   "sub": 0,
+   "type": 3,
+   "name": "Channel settings."
+  },
+  {
+   "id": 1404,
+   "sub": 1,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 1404,
+   "sub": 2,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 1404,
+   "sub": 3,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 1404,
+   "sub": 4,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 1404,
+   "sub": 5,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 1405,
+   "sub": 0,
+   "type": 2,
+   "name": "The type of corner marker for the tree control."
+  },
+  {
+   "id": 1405,
+   "sub": 1,
+   "type": 2,
+   "name": "The color of corner marker of the tree control."
+  },
+  {
+   "id": 1406,
+   "sub": 0,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1406,
+   "sub": 1,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1406,
+   "sub": 2,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1406,
+   "sub": 3,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1407,
+   "sub": 0,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1407,
+   "sub": 1,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1407,
+   "sub": 2,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1407,
+   "sub": 3,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1408,
+   "sub": 0,
+   "type": 4,
+   "name": "Set the function to be called at the beginning of the schedule."
+  },
+  {
+   "id": 1409,
+   "sub": 0,
+   "type": 4,
+   "name": "Set the function to be called at the end of the schedule."
+  },
+  {
+   "id": 1410,
+   "sub": 0,
+   "type": 4,
+   "name": "Set whether the start/end action is performed when power-on or not."
+  },
+  {
+   "id": 1411,
+   "sub": 0,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1412,
+   "sub": 0,
+   "type": 4,
+   "name": null
+  },
+  {
+   "id": 1413,
+   "sub": 0,
+   "type": 1,
+   "name": "Position switching speed, 0 to 255, unit: 100ms."
+  },
+  {
+   "id": 1413,
+   "sub": 1,
+   "type": 1,
+   "name": "State switching mode."
+  },
+  {
+   "id": 1413,
+   "sub": 2,
+   "type": 1,
+   "name": "State switching speed, 0 to 255, unit: 100ms."
+  },
+  {
+   "id": 1413,
+   "sub": 3,
+   "type": 1,
+   "name": "When the original element moves to the final position, it will move back to the starting position in a reverse path manner."
+  },
+  {
+   "id": 1414,
+   "sub": 0,
+   "type": 2,
+   "name": "Animated image display size (Width)."
+  },
+  {
+   "id": 1414,
+   "sub": 1,
+   "type": 2,
+   "name": "Animated image display size (Height)."
+  },
+  {
+   "id": 1415,
+   "sub": 0,
+   "type": 1,
+   "name": "Control method for the state and position of animated image."
+  },
+  {
+   "id": 1416,
+   "sub": 0,
+   "type": 4,
+   "name": "Animation position."
+  },
+  {
+   "id": 1420,
+   "sub": 0,
+   "type": 2,
+   "name": "Scale type."
+  },
+  {
+   "id": 1421,
+   "sub": 0,
+   "type": 2,
+   "name": "Display scale or not."
+  },
+  {
+   "id": 1421,
+   "sub": 1,
+   "type": 2,
+   "name": "Display the bottom line of the scale or not."
+  },
+  {
+   "id": 1421,
+   "sub": 2,
+   "type": 2,
+   "name": "Sets the number of segments on the long scale."
+  },
+  {
+   "id": 1421,
+   "sub": 3,
+   "type": 2,
+   "name": "Sets the number of segments on the short scale."
+  },
+  {
+   "id": 1421,
+   "sub": 4,
+   "type": 2,
+   "name": "Set the color of the scale."
+  },
+  {
+   "id": 1421,
+   "sub": 5,
+   "type": 2,
+   "name": "Set the type of main scale line."
+  },
+  {
+   "id": 1421,
+   "sub": 6,
+   "type": 2,
+   "name": "Set the width of main scale line."
+  },
+  {
+   "id": 1421,
+   "sub": 7,
+   "type": 2,
+   "name": "Set the type of sub scale line."
+  },
+  {
+   "id": 1421,
+   "sub": 8,
+   "type": 2,
+   "name": "Set the width of sub scale line."
+  },
+  {
+   "id": 1422,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the scale direction."
+  },
+  {
+   "id": 1423,
+   "sub": 0,
+   "type": 2,
+   "name": "The start angle of the circle.(0~359)"
+  },
+  {
+   "id": 1423,
+   "sub": 1,
+   "type": 2,
+   "name": "The end angle of the circle.(0~359)"
+  },
+  {
+   "id": 1423,
+   "sub": 2,
+   "type": 2,
+   "name": "Select the direction of the circular scale."
+  },
+  {
+   "id": 1423,
+   "sub": 3,
+   "type": 2,
+   "name": "Set the radius of the circular scale(%)."
+  },
+  {
+   "id": 1423,
+   "sub": 4,
+   "type": 2,
+   "name": "Set the length of the main scale line(%)."
+  },
+  {
+   "id": 1423,
+   "sub": 5,
+   "type": 2,
+   "name": "Set the length of the sub scale line(%)."
+  },
+  {
+   "id": 1424,
+   "sub": 0,
+   "type": 2,
+   "name": "Display symbols or not."
+  },
+  {
+   "id": 1424,
+   "sub": 1,
+   "type": 2,
+   "name": "Set the character length for displaying the scale symbols. (0 to 24)"
+  },
+  {
+   "id": 1424,
+   "sub": 2,
+   "type": 2,
+   "name": "Number of decimal points. (0 to 6)"
+  },
+  {
+   "id": 1424,
+   "sub": 3,
+   "type": 2,
+   "name": "The starting value of scale symbol."
+  },
+  {
+   "id": 1424,
+   "sub": 4,
+   "type": 2,
+   "name": "The ending value of scale symbol."
+  },
+  {
+   "id": 1424,
+   "sub": 5,
+   "type": 2,
+   "name": "The radius displayed by the symbol."
+  },
+  {
+   "id": 1425,
+   "sub": 0,
+   "type": 2,
+   "name": "Flow speed of the slider block: each slide moves x pixels, with flow velocities 1-25 corresponding to sliding once every 1000ms to 20ms."
+  },
+  {
+   "id": 1426,
+   "sub": 0,
+   "type": 2,
+   "name": "Whether reverse flow occurs."
+  },
+  {
+   "id": 1427,
+   "sub": 0,
+   "type": 2,
+   "name": "Width of the conduit."
+  },
+  {
+   "id": 1427,
+   "sub": 1,
+   "type": 2,
+   "name": "Color of the conduit."
+  },
+  {
+   "id": 1428,
+   "sub": 0,
+   "type": 2,
+   "name": "Style of the slider block."
+  },
+  {
+   "id": 1428,
+   "sub": 1,
+   "type": 2,
+   "name": "Width of the slider block."
+  },
+  {
+   "id": 1428,
+   "sub": 2,
+   "type": 2,
+   "name": "Length of each slider block."
+  },
+  {
+   "id": 1428,
+   "sub": 3,
+   "type": 2,
+   "name": "Spacing between each slider block."
+  },
+  {
+   "id": 1428,
+   "sub": 4,
+   "type": 2,
+   "name": "Color of the slider block."
+  },
+  {
+   "id": 1430,
+   "sub": 0,
+   "type": 2,
+   "name": "Set to display barcode or QR code."
+  },
+  {
+   "id": 1431,
+   "sub": 0,
+   "type": 2,
+   "name": "Set up the QR code mode."
+  },
+  {
+   "id": 1431,
+   "sub": 1,
+   "type": 2,
+   "name": "Set up QR code correction standards."
+  },
+  {
+   "id": 1432,
+   "sub": 0,
+   "type": 2,
+   "name": "Set barcode mode."
+  },
+  {
+   "id": 1432,
+   "sub": 1,
+   "type": 2,
+   "name": "Display the barcode text or not."
+  },
+  {
+   "id": 1433,
+   "sub": 0,
+   "type": 1,
+   "name": "Set the id of the radio button, and the id will be written into the register when the button is selected."
+  },
+  {
+   "id": 1434,
+   "sub": 0,
+   "type": 2,
+   "name": "Button icon display width."
+  },
+  {
+   "id": 1434,
+   "sub": 1,
+   "type": 2,
+   "name": "Button icon display height."
+  },
+  {
+   "id": 1435,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the icon from the picture library."
+  },
+  {
+   "id": 1436,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the color of the icon."
+  },
+  {
+   "id": 1437,
+   "sub": 0,
+   "type": 2,
+   "name": "Maximum number of characters to be output for printing.(1~65535)"
+  },
+  {
+   "id": 1438,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the warning color."
+  },
+  {
+   "id": 1439,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the error color."
+  },
+  {
+   "id": 1440,
+   "sub": 0,
+   "type": 2,
+   "name": "Display date or not(year-month-day)."
+  },
+  {
+   "id": 1440,
+   "sub": 1,
+   "type": 2,
+   "name": "Display time or not(hour:min:sec)."
+  },
+  {
+   "id": 1441,
+   "sub": 0,
+   "type": 1,
+   "name": "Whether to input the displayed date and time from the register."
+  },
+  {
+   "id": 1442,
+   "sub": 0,
+   "type": 2,
+   "name": "The display direction of the X-axis on the xy chart."
+  },
+  {
+   "id": 1443,
+   "sub": 0,
+   "type": 6,
+   "name": "Reference line settings of XY Chart."
+  },
+  {
+   "id": 1443,
+   "sub": 1,
+   "type": 6,
+   "name": "Min value of reference line."
+  },
+  {
+   "id": 1443,
+   "sub": 2,
+   "type": 6,
+   "name": "Max value of reference line."
+  },
+  {
+   "id": 1443,
+   "sub": 3,
+   "type": 6,
+   "name": "If use reference line."
+  },
+  {
+   "id": 1443,
+   "sub": 4,
+   "type": 6,
+   "name": "Display color of reference line."
+  },
+  {
+   "id": 1443,
+   "sub": 5,
+   "type": 6,
+   "name": "Value of reference line."
+  },
+  {
+   "id": 1443,
+   "sub": 6,
+   "type": 6,
+   "name": "Line type."
+  },
+  {
+   "id": 1444,
+   "sub": 0,
+   "type": 1,
+   "name": "Data sampling index, which data sampling library to refer to."
+  },
+  {
+   "id": 1444,
+   "sub": 1,
+   "type": 1,
+   "name": "Sampling data display mode."
+  },
+  {
+   "id": 1444,
+   "sub": 3,
+   "type": 2,
+   "name": "Sampling point spacing (pixels)."
+  },
+  {
+   "id": 1444,
+   "sub": 5,
+   "type": 2,
+   "name": "Display scale symbols or not."
+  },
+  {
+   "id": 1444,
+   "sub": 6,
+   "type": 1,
+   "name": "Whether to use registers to control pause."
+  },
+  {
+   "id": 1445,
+   "sub": 0,
+   "type": 2,
+   "name": "Dispaly grid or not."
+  },
+  {
+   "id": 1445,
+   "sub": 1,
+   "type": 2,
+   "name": "Grid color."
+  },
+  {
+   "id": 1445,
+   "sub": 2,
+   "type": 2,
+   "name": "Sets the number of columns in the grid."
+  },
+  {
+   "id": 1445,
+   "sub": 3,
+   "type": 2,
+   "name": "Sets the number of rows in the grid."
+  },
+  {
+   "id": 1445,
+   "sub": 4,
+   "type": 2,
+   "name": "Whether the X-axis is divided by interval."
+  },
+  {
+   "id": 1445,
+   "sub": 5,
+   "type": 2,
+   "name": "The number of intervals between each vertical line in the grid."
+  },
+  {
+   "id": 1450,
+   "sub": 0,
+   "type": 6,
+   "name": "XY Curve display style."
+  },
+  {
+   "id": 1450,
+   "sub": 1,
+   "type": 6,
+   "name": "Curve color."
+  },
+  {
+   "id": 1450,
+   "sub": 2,
+   "type": 6,
+   "name": "Pen size."
+  },
+  {
+   "id": 1450,
+   "sub": 3,
+   "type": 6,
+   "name": "Line width."
+  },
+  {
+   "id": 1450,
+   "sub": 4,
+   "type": 6,
+   "name": "Line type."
+  },
+  {
+   "id": 1450,
+   "sub": 5,
+   "type": 6,
+   "name": "Display style."
+  },
+  {
+   "id": 1450,
+   "sub": 6,
+   "type": 6,
+   "name": "MinY."
+  },
+  {
+   "id": 1450,
+   "sub": 7,
+   "type": 6,
+   "name": "MaxY."
+  },
+  {
+   "id": 1450,
+   "sub": 8,
+   "type": 6,
+   "name": "MinX."
+  },
+  {
+   "id": 1450,
+   "sub": 9,
+   "type": 6,
+   "name": "MaxX."
+  },
+  {
+   "id": 1500,
+   "sub": 0,
+   "type": 4,
+   "name": "When the control switch message triggers, call the sub function via Hmi_CtrlMsgCall only if the message is enabled."
+  },
+  {
+   "id": 1501,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the icon from the picture library."
+  },
+  {
+   "id": 1502,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the color of the icon."
+  },
+  {
+   "id": 1503,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the display position of the icon relative to the label."
+  },
+  {
+   "id": 1504,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the distance between the icon and the border."
+  },
+  {
+   "id": 1510,
+   "sub": 0,
+   "type": 1,
+   "name": "Set word wrap or not."
+  },
+  {
+   "id": 1511,
+   "sub": 0,
+   "type": 4,
+   "name": "Call the function when switching tab."
+  },
+  {
+   "id": 1513,
+   "sub": 0,
+   "type": 1,
+   "name": "Select the displayed recipe group."
+  },
+  {
+   "id": 1514,
+   "sub": 0,
+   "type": 2,
+   "name": "The radix type for numerical display, applicable to integers."
+  },
+  {
+   "id": 1515,
+   "sub": 0,
+   "type": 2,
+   "name": "Active error compensation value, applicable to floating-point numbers.(-1.0000000 to 1.000000)"
+  },
+  {
+   "id": 1516,
+   "sub": 0,
+   "type": 1,
+   "name": "Whether to automatically back up the previous drawing; during passive SER_REDRAW, the backup is displayed directly without redrawing."
+  },
+  {
+   "id": 1517,
+   "sub": 0,
+   "type": 2,
+   "name": "Control transparency.(0% to 100%)"
+  },
+  {
+   "id": 1522,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the color of the control border."
+  },
+  {
+   "id": 1523,
+   "sub": 0,
+   "type": 2,
+   "name": "Select the color of the pressed control."
+  },
+  {
+   "id": 1524,
+   "sub": 0,
+   "type": 1,
+   "name": "Select the link object."
+  },
+  {
+   "id": 1524,
+   "sub": 1,
+   "type": 1,
+   "name": "Select the link control id."
+  },
+  {
+   "id": 1525,
+   "sub": 0,
+   "type": 4,
+   "name": "Set loop spin or not."
+  },
+  {
+   "id": 1526,
+   "sub": 0,
+   "type": 4,
+   "name": "Set spin value."
+  },
+  {
+   "id": 1527,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the background color of even row."
+  },
+  {
+   "id": 1528,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the background color of cursor line."
+  },
+  {
+   "id": 1529,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the font color of cursor line."
+  },
+  {
+   "id": 1530,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the background color of cursor cell."
+  },
+  {
+   "id": 1531,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the font color of cursor cell."
+  },
+  {
+   "id": 1532,
+   "sub": 0,
+   "type": 2,
+   "name": "Set the height of each row display."
+  },
+  {
+   "id": 1533,
+   "sub": 0,
+   "type": 2,
+   "name": "Display sequence number or not."
+  },
+  {
+   "id": 1533,
+   "sub": 1,
+   "type": 2,
+   "name": "Set then sequence number width."
+  },
+  {
+   "id": 1535,
+   "sub": 0,
+   "type": 2,
+   "name": "The type of corner marker for the dropdown list control."
+  },
+  {
+   "id": 1535,
+   "sub": 1,
+   "type": 2,
+   "name": "The color of corner marker for the dropdown list control."
+  },
+  {
+   "id": 1536,
+   "sub": 0,
+   "type": 2,
+   "name": "The alignment position of the label display."
+  },
+  {
+   "id": 1537,
+   "sub": 0,
+   "type": 2,
+   "name": "The height of the label display."
+  },
+  {
+   "id": 1538,
+   "sub": 0,
+   "type": 3,
+   "name": "Set the number of tabs.(1 to 16)"
+  },
+  {
+   "id": 1539,
+   "sub": 0,
+   "type": 3,
+   "name": "Setting the label text and background color of the tab."
+  },
+  {
+   "id": 1539,
+   "sub": 1,
+   "type": 3,
+   "name": "The background color of the tab display."
+  },
+  {
+   "id": 1541,
+   "sub": 0,
+   "type": 2,
+   "name": "The scrollable display width of the panel."
+  },
+  {
+   "id": 1541,
+   "sub": 1,
+   "type": 2,
+   "name": "The scrollable display height of the panel."
+  },
+  {
+   "id": 1550,
+   "sub": 0,
+   "type": 2,
+   "name": "The name of the tootip text library, if empty, indicates the use of a tooltip text. Display when the mouse hovers over the control."
+  },
+  {
+   "id": 1551,
+   "sub": 0,
+   "type": 2,
+   "name": "The tooltip text displayed when the mouse hovers over the control."
+  },
+  {
+   "id": 1560,
+   "sub": 0,
+   "type": 1,
+   "name": "The sub function executed for initializing the control."
+  },
+  {
+   "id": 1570,
+   "sub": 0,
+   "type": 6,
+   "name": "Set the number of custom strings."
+  },
+  {
+   "id": 1571,
+   "sub": 0,
+   "type": 6,
+   "name": "Set the number of custom array spaces."
+  },
+  {
+   "id": 1572,
+   "sub": 0,
+   "type": 6,
+   "name": "Set the number of custom values."
+  },
+  {
+   "id": 1572,
+   "sub": 1,
+   "type": 6,
+   "name": "Set custom value."
+  },
+  {
+   "id": 2000,
+   "sub": 0,
+   "type": 3,
+   "name": "Sets the style of the control label."
+  },
+  {
+   "id": 2000,
+   "sub": 1,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 3000,
+   "sub": 0,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 3000,
+   "sub": 1,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 3000,
+   "sub": 2,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 3000,
+   "sub": 3,
+   "type": 3,
+   "name": null
+  },
+  {
+   "id": 3000,
+   "sub": 4,
+   "type": 2,
+   "name": null
+  },
+  {
+   "id": 3000,
+   "sub": 5,
+   "type": 2,
+   "name": null
+  },
+  {
+   "id": 3000,
+   "sub": 6,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 3000,
+   "sub": 7,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 4000,
+   "sub": 0,
+   "type": 3,
+   "name": "Set list state."
+  },
+  {
+   "id": 4000,
+   "sub": 1,
+   "type": 3,
+   "name": "Set the list status text."
+  },
+  {
+   "id": 6000,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 6300,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 6300,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 6600,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 6900,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 8000,
+   "sub": 0,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 8000,
+   "sub": 1,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 8000,
+   "sub": 2,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 8000,
+   "sub": 3,
+   "type": 0,
+   "name": null
+  },
+  {
+   "id": 9500,
+   "sub": 0,
+   "type": 6,
+   "name": "Set custom string."
+  },
+  {
+   "id": 20001,
+   "sub": 0,
+   "type": 1,
+   "name": "Specifies the number of the current window."
+  },
+  {
+   "id": 20003,
+   "sub": 0,
+   "type": 1,
+   "name": "Specifies the name of the current window."
+  },
+  {
+   "id": 20006,
+   "sub": 0,
+   "type": 1,
+   "name": "Specify whether the window is a monopoly window; Monopoly window can only operate the control in the monopoly window."
+  },
+  {
+   "id": 20007,
+   "sub": 0,
+   "type": 1,
+   "name": "One of them: Base Window, Pop Window, Menu Window, Soft Keyboard Window, Top Window."
+  },
+  {
+   "id": 20008,
+   "sub": 0,
+   "type": 2,
+   "name": "Background transparency.(0% to 100%)"
+  },
+  {
+   "id": 20010,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets The public window 1 for the current window, which displays the controls for the public window."
+  },
+  {
+   "id": 20011,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets The public window 2 for the current window, which displays the controls for the public window."
+  },
+  {
+   "id": 20012,
+   "sub": 0,
+   "type": 2,
+   "name": "Sets The public window 3 for the current window, which displays the controls for the public window."
+  },
+  {
+   "id": 20013,
+   "sub": 0,
+   "type": 2,
+   "name": "Display window title bar."
+  },
+  {
+   "id": 20014,
+   "sub": 0,
+   "type": 2,
+   "name": "Height of the window title bar."
+  },
+  {
+   "id": 20015,
+   "sub": 0,
+   "type": 1,
+   "name": "Allow dragging by holding the mouse on the title bar."
+  },
+  {
+   "id": 20016,
+   "sub": 0,
+   "type": 1,
+   "name": "Allow resizing by holding the mouse on the window edges or corners."
+  },
+  {
+   "id": 20020,
+   "sub": 0,
+   "type": 1,
+   "name": "Set the backlight time of the teaching box (min)."
+  },
+  {
+   "id": 20023,
+   "sub": 0,
+   "type": 1,
+   "name": "Set the screen saver time for the tutorial box (min)."
+  },
+  {
+   "id": 20024,
+   "sub": 0,
+   "type": 1,
+   "name": "Sets the window number for RTHmi initial power-on display."
+  },
+  {
+   "id": 20025,
+   "sub": 0,
+   "type": 1,
+   "name": "Set the window number for RTHmi initial power-on display. The start top window overwrites the start base window."
+  },
+  {
+   "id": 20026,
+   "sub": 0,
+   "type": 0,
+   "name": "Default BASIC file."
+  },
+  {
+   "id": 20027,
+   "sub": 0,
+   "type": 5,
+   "name": "Set the horizontal resolution size."
+  },
+  {
+   "id": 20027,
+   "sub": 1,
+   "type": 5,
+   "name": "Set the vertical resolution size."
+  },
+  {
+   "id": 20028,
+   "sub": 0,
+   "type": 1,
+   "name": "The sub function that executes once the RTHmi file is started."
+  },
+  {
+   "id": 20029,
+   "sub": 0,
+   "type": 1,
+   "name": "The sub function that executes periodically after the RTHmi file is started."
+  },
+  {
+   "id": 20030,
+   "sub": 0,
+   "type": 1,
+   "name": "Sets the LCD screen number."
+  },
+  {
+   "id": 20034,
+   "sub": 0,
+   "type": 1,
+   "name": "True: Use the control format text. False: Use text library format text."
+  },
+  {
+   "id": 20035,
+   "sub": 0,
+   "type": 1,
+   "name": "Compress the project image. New compression: lossless compression; Old compression: Compression in ZDevelop, lossy compression."
+  },
+  {
+   "id": 20036,
+   "sub": 0,
+   "type": 1,
+   "name": "Control text adaptive size."
+  },
+  {
+   "id": 20037,
+   "sub": 0,
+   "type": 1,
+   "name": "Standard: HMI performance is better. High: The picture quality is better."
+  },
+  {
+   "id": 20038,
+   "sub": 0,
+   "type": 1,
+   "name": "Controls within the window should not exceed the bounds of the window."
+  },
+  {
+   "id": 20039,
+   "sub": 0,
+   "type": 1,
+   "name": "Only the topmost window under the cursor processes mouse events per cycle."
+  },
+  {
+   "id": 20040,
+   "sub": 0,
+   "type": 1,
+   "name": "The specified device."
+  },
+  {
+   "id": 20040,
+   "sub": 1,
+   "type": 1,
+   "name": "Select register type."
+  },
+  {
+   "id": 20040,
+   "sub": 2,
+   "type": 1,
+   "name": "Sets the register number."
+  },
+  {
+   "id": 20040,
+   "sub": 3,
+   "type": 1,
+   "name": "The @ register can take variables or functions defined in BASIC."
+  },
+  {
+   "id": 20041,
+   "sub": 0,
+   "type": 1,
+   "name": "The specified device."
+  },
+  {
+   "id": 20041,
+   "sub": 1,
+   "type": 1,
+   "name": "Select register type."
+  },
+  {
+   "id": 20041,
+   "sub": 2,
+   "type": 1,
+   "name": "Sets the register number."
+  },
+  {
+   "id": 20041,
+   "sub": 3,
+   "type": 1,
+   "name": "The @ register can take variables or functions defined in BASIC."
+  },
+  {
+   "id": 20050,
+   "sub": 1,
+   "type": 0,
+   "name": "The specified device."
+  }
+ ]
+}

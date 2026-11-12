@@ -122,7 +122,7 @@ namespace RTSys.PlugIn
             List<Dictionary<string, object>> sys,
             List<Dictionary<string, object>> tools,
             List<Dictionary<string, object>> msgs,
-            int maxTokens, bool enableThinking, int budgetTokens,
+            int maxTokens, string reasoningEffort,
             string model,
             CancellationToken ct)
         {
@@ -131,7 +131,7 @@ namespace RTSys.PlugIn
             {
                 try
                 {
-                    return CallApiOnce(sys, tools, msgs, maxTokens, enableThinking, budgetTokens,
+                    return CallApiOnce(sys, tools, msgs, maxTokens, reasoningEffort,
                                        suppressUiCallbacks: true, model, ct);
                 }
                 catch (OperationCanceledException) { throw; }
@@ -239,9 +239,8 @@ namespace RTSys.PlugIn
                     });
                 }
             }
-            // thinking：仅 review/debug/verify 跟随全局开关（分析/诊断/验证类，深度推理有价值）；research/explore 始终关（查文档/遍历，不需要）。
-            bool subThinking = (agentType == "review" || agentType == "debug" || agentType == "verify") && _enableThinking;
-            int subBudget = subThinking ? _budgetTokens : 0;
+            // thinking：仅 review/debug/verify 跟随全局强度（分析/诊断/验证类，深度推理有价值）；research/explore 始终 off（查文档/遍历，不需要）。
+            string subEffort = (agentType == "review" || agentType == "debug" || agentType == "verify") ? _reasoningEffort : "off";
             // 模型分流（与 thinking 同分组）：research/explore（查文档/探索，简单）走轻模型；review/debug/verify（审查/诊断/验证，需推理）走主模型。轻模型留空则回退主。
             string subModel = (agentType == "research" || agentType == "explore") && !string.IsNullOrEmpty(_lightModel)
                 ? _lightModel : _model;
@@ -263,7 +262,7 @@ namespace RTSys.PlugIn
                     ct.ThrowIfCancellationRequested();
 
                     StreamResult result = CallSubagentWithRetry(subSystem, subTools, subMessages,
-                        DefaultMaxTokens, enableThinking: subThinking, budgetTokens: subBudget, subModel, ct);
+                        DefaultMaxTokens, reasoningEffort: subEffort, subModel, ct);
 
                     if (result == null)
                     {

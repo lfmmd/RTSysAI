@@ -253,7 +253,7 @@ namespace RTSys.PlugIn
                     { "cache_control", new { type = "ephemeral" } }
                 });
             }
-            // compact 只是摘要，给 thinking 小 budget；max_tokens 须 > budget_tokens。
+            // compact 只是摘要，给 low 强度；max_tokens 须 > thinking budget。
             const int compactThinkingBudget = 2048;
             const int compactMaxTokens = 6144;
 
@@ -276,7 +276,7 @@ namespace RTSys.PlugIn
 
             // 与主对话一致：开 thinking 的模型须带 thinking 配置，否则 GLM 兼容端点会拒绝(400)或
             // 把 thinking 当首个 block 返回导致 text 取空。走流式 + 只累积 text_delta 跳过 thinking。
-            if (_enableThinking)
+            if (_reasoningEffort != "off")
             {
                 body["thinking"] = new Dictionary<string, object>
                 {

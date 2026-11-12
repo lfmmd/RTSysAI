@@ -948,8 +948,15 @@ namespace RTSys.PlugIn
                     if (_wasVisible)
                     {
                         _wasVisible = false;
-                        PlugInLog.Log("SizeFollow() 父窗口已销毁，关闭所有对话框");
+                        PlugInLog.Log("SizeFollow() 父窗口已销毁，停止 HTTP API 并关闭对话框");
+                        StopHttpApi();
                         CloseDialogsSafe();
+                    }
+                    // 宿主窗口已不存在，无需继续轮询
+                    if (_resizeTimer != null)
+                    {
+                        try { _resizeTimer.Stop(); } catch { }
+                        _resizeTimer = null;
                     }
                     return;
                 }

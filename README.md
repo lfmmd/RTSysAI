@@ -136,7 +136,7 @@ python tools\build_rtbasic_skills.py --src "%RTSYS_DIR%\help\RTBasic"
 | **轻模型** | 子 Agent 使用的模型，留空则与主模型一致 |
 | **控制器 IP** | RTSys / ZMotion 控制器地址；留空时程序仍可离线编辑 |
 | **HTTP API 端口** | 1024–65535，默认 `9090` |
-| **扩展思考 / 思考预算** | 控制 Extended Thinking 与 `budget_tokens` |
+| **思考强度** | 滑动档位（关/低/中/高/最大；Anthropic 格式下映射为 budget） |
 | **方言 / 编码** | RTBasic 提示词方言、`.bas` 输出编码 |
 | **Skill 初始化** | 将内置 `skills\` 复制到 `%APPDATA%\RTSysAI\skills\` |
 

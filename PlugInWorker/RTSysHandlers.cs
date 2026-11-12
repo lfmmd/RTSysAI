@@ -696,8 +696,25 @@ namespace RTSys.PlugIn
                     };
                 }
 
-                // 已配置 IP：尝试连接。失败时 GetHandleAsync 抛 ControllerUnavailableException，
-                // 由 Safe 统一转成结构化错误（不外泄堆栈）。
+                // 已配置 IP 但无活动连接：不触发阻塞式连接，返回离线状态（与 AiPrompt 一致）。
+                if (!HasLiveConnection)
+                {
+                    return new
+                    {
+                        success = true,
+                        connected = false,
+                        connectionState = state.ToString(),
+                        controller = "RTSys",
+                        firmware = (string)null,
+                        project = "RTSys Controller",
+                        ip = _cachedIp,
+                        axisCount = 0,
+                        state = 0,
+                        pendingUploads
+                    };
+                }
+
+                // 有活动连接：尝试获取完整状态。
                 var handle = await GetHandleAsync();
                 var status = await handle.GetFullStatusAsync();
                 return new
@@ -725,26 +742,19 @@ namespace RTSys.PlugIn
         {
             var localPrograms = ProgramWorkspace.ListLocalPrograms();
             var projectPrograms = ProgramWorkspace.ListProjectPrograms();
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            names.UnionWith(localPrograms.Select(p => p.name));
-            names.UnionWith(projectPrograms.Select(p => p.name));
-            var items = names.Select(name =>
-            {
-                var local = localPrograms.FirstOrDefault(p => string.Equals(p.name, name, StringComparison.OrdinalIgnoreCase));
-                var proj = projectPrograms.FirstOrDefault(p => string.Equals(p.name, name, StringComparison.OrdinalIgnoreCase));
-                return new
+            var items = MergePrograms(localPrograms, projectPrograms, null, includeLocalOnly: false)
+                .Select(m => new
                 {
-                    name = name,
+                    name = m.Name,
                     type = "basic",
                     dialect = "rtbasic",
                     isEditable = true,
                     isExecutable = true,
-                    storage = proj != null ? "project" : "local",
-                    origin = proj != null && local != null ? "both" : (proj != null ? "project" : "local"),
-                    isDirty = local?.isDirty == true,
-                    lastSyncedUtc = local?.lastSyncedUtc
-                };
-            }).OrderBy(i => i.name, StringComparer.OrdinalIgnoreCase).ToList();
+                    storage = m.Storage,
+                    origin = m.Origin,
+                    isDirty = m.IsDirty,
+                    lastSyncedUtc = m.LastSyncedUtc
+                }).ToList();
             return new { success = true, items, projectDir = ProgramWorkspace.ProjectDir };
         }
 
@@ -753,10 +763,12 @@ namespace RTSys.PlugIn
             var localPrograms = ProgramWorkspace.ListLocalPrograms();
             var projectPrograms = ProgramWorkspace.ListProjectPrograms();
 
-            // 无活动连接时，返回项目目录 + 本地缓存（离线安全，且不触发阻塞式连接）。
+            // 无活动连接时，返回项目目录（离线安全，且不触发阻塞式连接）。
+            // 本地缓存（origin=local、无工程/控制器对应的项）属于历史残留，
+            // 不应出现在当前项目的文件列表中，仅在已连接控制器时才参与合并。
             if (!HasLiveConnection)
             {
-                var items = MergePrograms(localPrograms, projectPrograms, null)
+                var items = MergePrograms(localPrograms, projectPrograms, null, includeLocalOnly: false)
                     .Select(m => new
                     {
                         name = m.Name,
@@ -800,11 +812,14 @@ namespace RTSys.PlugIn
         /// 合并本地缓存 / 工程目录 / 控制器程序，统一 origin 词表：
         /// project+controller | project | both(local+controller) | local | controller。
         /// controllerPrograms 为 null 表示离线（不触发控制器连接）。
+        /// includeLocalOnly=false 时，跳过仅存在于本地缓存（无工程/控制器对应）的项，
+        /// 使文件列表以当前项目/控制器为准，不被历史缓存污染。
         /// </summary>
         private static List<MergedProgram> MergePrograms(
             List<ProgramWorkspace.ProgramInfo> localPrograms,
             List<ProgramWorkspace.ProgramInfo> projectPrograms,
-            ICollection<string> controllerPrograms)
+            ICollection<string> controllerPrograms,
+            bool includeLocalOnly = true)
         {
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in localPrograms) names.Add(p.name);
@@ -821,6 +836,8 @@ namespace RTSys.PlugIn
                 bool hasProject = proj != null;
                 bool hasController = controllerPrograms != null
                     && controllerPrograms.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+
+                if (!includeLocalOnly && hasLocal && !hasProject && !hasController) continue;
 
                 string origin;
                 if (hasProject && hasController) origin = "project+controller";
@@ -921,10 +938,12 @@ namespace RTSys.PlugIn
                     if (start > totalLines) return Error($"startLine {start} exceeds total lines {totalLines}");
                     int end = Math.Min(totalLines, endOpt ?? totalLines);
                     if (end < start) end = start;
-                    var slice = string.Join("\n", lines.Skip(start - 1).Take(end - start + 1));
+                    var sliceLines = lines.Skip(start - 1).Take(end - start + 1).ToList();
+                    var slice = string.Join("\n", sliceLines);
                     return new
                     {
                         sourceCode = slice,
+                        numberedSource = NumberLines(sliceLines, start),
                         startLine = start,
                         endLine = end,
                         totalLines,
@@ -949,10 +968,12 @@ namespace RTSys.PlugIn
                         charCount += lines[i].Length + 1;
                         if (charCount > AutoPageChars) { end = i; break; }
                     }
-                    var slice = string.Join("\n", lines.Take(end));
+                    var sliceLines = lines.Take(end).ToList();
+                    var slice = string.Join("\n", sliceLines);
                     return new
                     {
                         sourceCode = slice,
+                        numberedSource = NumberLines(sliceLines, 1),
                         startLine = 1,
                         endLine = end,
                         totalLines,
@@ -967,7 +988,7 @@ namespace RTSys.PlugIn
                     };
                 }
 
-                return new { sourceCode = source, totalLines, type = "basic", dialect = "rtbasic", fromLocal, fromProject, fromEditor };
+                return new { sourceCode = source, numberedSource = NumberLines(lines, 1), totalLines = totalLines, type = "basic", dialect = "rtbasic", fromLocal, fromProject, fromEditor };
             });
         }
 
@@ -1364,16 +1385,20 @@ namespace RTSys.PlugIn
             var cmp = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
             // 项目目录优先（同名程序以项目文件为准），其次本地缓存。
+            // 本地缓存的 local-only 项（不属于当前项目的历史残留）不参与搜索结果。
             var sources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var origins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var prog in ProgramWorkspace.ListProjectPrograms())
+            var projectPrograms = ProgramWorkspace.ListProjectPrograms();
+            foreach (var prog in projectPrograms)
             {
                 var s = ProgramWorkspace.ReadProjectSource(prog.name);
                 if (s != null) { sources[prog.name] = s; origins[prog.name] = "project"; }
             }
+            var projectNames = new HashSet<string>(projectPrograms.Select(p => p.name), StringComparer.OrdinalIgnoreCase);
             foreach (var prog in ProgramWorkspace.ListLocalPrograms())
             {
                 if (sources.ContainsKey(prog.name)) continue;
+                if (!projectNames.Contains(prog.name)) continue;
                 var s = ProgramWorkspace.ReadLocalSource(prog.name);
                 if (s != null) { sources[prog.name] = s; origins[prog.name] = prog.origin; }
             }
@@ -1476,11 +1501,12 @@ namespace RTSys.PlugIn
             var projectPrograms = ProgramWorkspace.ListProjectPrograms();
             var hmiNames = ProgramWorkspace.ListProjectHmiFiles();
 
-            // 无活动连接：返回当前项目目录 + 本地缓存的程序（离线可用，不触发连接）。
+            // 无活动连接：返回当前项目目录的程序（离线可用，不触发连接）。
+            // 本地缓存残留项不列出，仅在已连接控制器时才参与合并。
             if (!HasLiveConnection)
             {
                 var items = new List<object>();
-                foreach (var m in MergePrograms(localPrograms, projectPrograms, null))
+                foreach (var m in MergePrograms(localPrograms, projectPrograms, null, includeLocalOnly: false))
                 {
                     items.Add(new
                     {
@@ -1620,6 +1646,18 @@ namespace RTSys.PlugIn
         }
 
         // ---- Helpers ----
+
+        /// <summary>
+        /// 逐行加绝对行号（1 基，空行也占一行），与 RTSys 编辑器行号栏一致。
+        /// 来源文件首行可能是空行，模型自行数行容易把空行漏掉导致整体偏移 1 行。
+        /// </summary>
+        private static string NumberLines(IList<string> lines, int firstLine)
+        {
+            var sb = new StringBuilder();
+            for (int i = 0; i < lines.Count; i++)
+                sb.Append(firstLine + i).Append(": ").Append(lines[i]).Append('\n');
+            return sb.ToString().TrimEnd('\n');
+        }
 
         private static List<string> ValidateRtBasicCode(string code)
         {
@@ -2409,6 +2447,632 @@ END
         public static object WriteSysVar(string name, Dictionary<string, object> body)
         {
             return Error("System variables not directly writable on RTSys.");
+        }
+
+        // =====================================================================
+        // HMI 内部对象模型能力（全部来自 RTSys 进程内 ExtMainHmi.dll 导出符号）
+        //
+        // 所有方法通过 HmiInternal 桥接调用 ExtMainHmi.dll：
+        //   - ZHmi_FileClass/WindowClass/ControlClass/FeatureClass 对象模型
+        //   - FindFeature / GetFeatureInt / GetFeatureDouble / GetFeatureString
+        //   - SetFeatureInt / SetFeatureDouble / SetString / ReflashFeatureList
+        //   - FindWindowW / FindControl
+        //
+        // 线程约束：ExtMainHmi 对象属于宿主 UI 线程；HmiInternal 直接调用原生符号，
+        //           需确保在 UI 线程执行（与 RTSysProjectModel.UiInvoke 一致）。
+        // =====================================================================
+
+        /// <summary>按控件属性全集重读后拼 detail（ID/类型/名称/几何/功能/颜色/状态/绑定）。</summary>
+        private static object BuildControlDetail(IntPtr ctl, int cid, int typeId, string name)
+        {
+            var feats = HmiInternal.EnumerateFeatures(ctl);
+            var color = HmiInternal.GetFeatureInt(ctl, 1029, 0) ?? HmiInternal.GetFeatureInt(ctl, 1036, 0) ?? HmiInternal.GetFeatureInt(ctl, 1046, 0);
+            var visible = HmiInternal.GetFeatureInt(ctl, 1021, 0);
+            var display = HmiInternal.GetFeatureInt(ctl, 1024, 0);
+            var device = HmiInternal.GetFeatureInt(ctl, 1011, 0);
+            var regType = HmiInternal.GetFeatureInt(ctl, 1011, 1);
+            var regNo = HmiInternal.GetFeatureInt(ctl, 1011, 2);
+            var state = HmiInternal.GetFeatureInt(ctl, 1005, 0);
+            return new
+            {
+                controlId = cid,
+                type = typeId,
+                typeName = HmiControlTypeName(typeId),
+                name = name,
+                geometry = new
+                {
+                    x = HmiInternal.GetFeatureInt(ctl, 1003, 0) ?? 0,
+                    y = HmiInternal.GetFeatureInt(ctl, 1003, 1) ?? 0,
+                    width = HmiInternal.GetFeatureInt(ctl, 1002, 0) ?? 0,
+                    height = HmiInternal.GetFeatureInt(ctl, 1002, 1) ?? 0
+                },
+                color = color.HasValue ? (object)color.Value : null,
+                visible,
+                displayByBit = display,
+                binding = device.HasValue ? new { device = device.Value, regType, regNo } : null,
+                stateCount = state,
+                featureCount = feats.Count
+            };
+        }
+
+        /// <summary>列出当前打开 HMI 文件的所有窗口（编号/名称/几何/控件数）。</summary>
+        public static object HmiListWindows()
+        {
+            return Safe(() =>
+            {
+                PlugInLog.Log("hmi_list_windows invoked");
+                var result = HmiOnUiThread(() =>
+                {
+                    var file = HmiInternal.GetCurrentFileClass();
+                    if (file == IntPtr.Zero)
+                        return new { success = false, error = "未打开任何 HMI 文件（请先在 RTSys 中打开 .hmi 画面）", windows = new object[0] };
+
+                    var windows = new List<object>();
+                    foreach (var win in HmiInternal.EnumerateChain(file, HmiInternal.OffWindowHead))
+                    {
+                        var id = HmiInternal.GetFeatureInt(win, HmiInternal.FeatureWindowId, 0) ?? 0;
+                        var name = HmiInternal.GetFeatureString(win, HmiInternal.FeatureWindowName, 0) ?? ("Window" + id);
+                        int? w = null, h = null, x = null, y = null;
+                        foreach (var f in HmiInternal.EnumerateFeatures(win))
+                        {
+                            if (f.MainId == HmiInternal.FeatureSize && f.SubId == 0) w = HmiInternal.GetFeatureInt(win, f.MainId, f.SubId, 0);
+                            if (f.MainId == HmiInternal.FeatureSize && f.SubId == 1) h = HmiInternal.GetFeatureInt(win, f.MainId, f.SubId, 0);
+                            if (f.MainId == HmiInternal.FeaturePosition && f.SubId == 0) x = HmiInternal.GetFeatureInt(win, f.MainId, f.SubId, 0);
+                            if (f.MainId == HmiInternal.FeaturePosition && f.SubId == 1) y = HmiInternal.GetFeatureInt(win, f.MainId, f.SubId, 0);
+                        }
+
+                        var controls = HmiInternal.EnumerateChain(win, HmiInternal.OffControlHead);
+                        windows.Add(new
+                        {
+                            id = id,
+                            name,
+                            width = w ?? 0,
+                            height = h ?? 0,
+                            x = x ?? 0,
+                            y = y ?? 0,
+                            controlCount = controls.Count,
+                            type = HmiInternal.GetObjectType(win)
+                        });
+                    }
+                    return new { success = true, windows, count = windows.Count };
+                });
+                if (result == null)
+                    PlugInLog.Log("hmi_list_windows: UI thread invoke returned null");
+                return result;
+            });
+        }
+
+        /// <summary>读取指定窗口的控件列表（id/type/typeName/x/y/w/h/name/geometry/features 摘要）。</summary>
+        public static object HmiReadWindow(int windowId)
+        {
+            return Safe(() => HmiOnUiThread(() =>
+            {
+                var file = HmiInternal.GetCurrentFileClass();
+                if (file == IntPtr.Zero)
+                    return new { success = false, error = "未打开任何 HMI 文件" };
+
+                var win = HmiInternal.FindWindow(file, windowId);
+                if (win == IntPtr.Zero)
+                    return new { success = false, error = "窗口不存在：" + windowId };
+
+                var controls = new List<object>();
+                foreach (var ctl in HmiInternal.EnumerateChain(win, HmiInternal.OffControlHead))
+                {
+                    int cid = HmiInternal.GetFeatureInt(ctl, HmiInternal.FeatureControlId, 0) ?? 0;
+                    int? w = null, h = null, x = null, y = null;
+                    var texts = new List<string>();
+                    foreach (var f in HmiInternal.EnumerateFeatures(ctl))
+                    {
+                        if (f.MainId == HmiInternal.FeatureSize && f.SubId == 0) w = HmiInternal.GetFeatureInt(ctl, f.MainId, f.SubId, 0);
+                        if (f.MainId == HmiInternal.FeatureSize && f.SubId == 1) h = HmiInternal.GetFeatureInt(ctl, f.MainId, f.SubId, 0);
+                        if (f.MainId == HmiInternal.FeaturePosition && f.SubId == 0) x = HmiInternal.GetFeatureInt(ctl, f.MainId, f.SubId, 0);
+                        if (f.MainId == HmiInternal.FeaturePosition && f.SubId == 1) y = HmiInternal.GetFeatureInt(ctl, f.MainId, f.SubId, 0);
+                        if (f.MainId == HmiInternal.FeatureDisplayText && f.SubId == 0)
+                        {
+                            var t = HmiInternal.GetFeatureString(ctl, f.MainId, f.SubId, 0);
+                            if (!string.IsNullOrEmpty(t) && !texts.Contains(t)) texts.Add(t);
+                        }
+                    }
+
+                    var typeId = HmiInternal.GetObjectType(ctl);
+                    var typeName = HmiControlTypeName(typeId);
+                    var name = HmiInternal.GetFeatureString(ctl, HmiInternal.FeatureControlName, 0);
+                    controls.Add(new
+                    {
+                        id = cid,
+                        type = typeId,
+                        typeName,
+                        name,
+                        x = x ?? 0,
+                        y = y ?? 0,
+                        width = w ?? 0,
+                        height = h ?? 0,
+                        text = texts,
+                        featureCount = HmiInternal.EnumerateFeatures(ctl).Count,
+                        detail = BuildControlDetail(ctl, cid, typeId, name)
+                    });
+                }
+                return new { success = true, windowId, controls, count = controls.Count };
+            }));
+        }
+
+        /// <summary>
+        /// 按 (mainId, subId, index) 读取特征值（类型感知）。
+        /// 特征按注册表类型区分：1=整型、5=Double、3=字符串、0/2=整型；
+        /// 之前只走 GetFeatureInt，String/Double 全部丢。
+        /// </summary>
+        /// <summary>
+        /// 按（可选 windowId + 类型）编号解析目标对象。控件编号在各窗口间重复（键盘窗口占用 1~47，
+        /// 工作画面 1~17 全重叠），因此未指定 windowId 时多窗命中会返回歧义错误而非静默命中首窗；
+        /// 指定 windowId 时先 FindWindow(windowId) 再 FindControl(该窗口, controlId)。
+        /// public 以便回归测试的反射辅助类（HmiTestHelper）直接调用。
+        /// </summary>
+        public static object HmiGetFeature(string targetType, int targetId, int mainId, int subId = 0, int index = 0, int? windowId = null)
+        {
+            return Safe(() => HmiOnUiThread(() =>
+            {
+                IntPtr obj;
+                string ambError;
+                if (!ResolveTarget(targetType, targetId, windowId, out obj, out ambError))
+                    return new { success = false, error = ambError, windowId };
+                if (obj == IntPtr.Zero)
+                    return new { success = false, error = "目标对象不存在：" + targetType + "[" + targetId + "]" };
+
+                var kind = HmiFeatureKind(mainId);
+                switch (kind)
+                {
+                    case "string":
+                        {
+                            var s = HmiInternal.GetFeatureString(obj, mainId, subId, index);
+                            if (s == null)
+                            {
+                                var fallback = HmiInternal.GetFeatureInt(obj, mainId, subId, index);
+                                if (fallback == null)
+                                    return new { success = false, error = "特征不存在或非字符串：" + mainId + "," + subId + "," + index };
+                                return new { success = true, kind, mainId, subId, index, value = fallback.Value };
+                            }
+                            return new { success = true, kind, mainId, subId, index, value = s };
+                        }
+                    case "double":
+                        {
+                            var d = HmiInternal.GetFeatureDouble(obj, mainId, subId, index);
+                            if (d == null)
+                            {
+                                var fallback = HmiInternal.GetFeatureInt(obj, mainId, subId, index);
+                                if (fallback == null)
+                                    return new { success = false, error = "特征不存在：" + mainId + "," + subId + "," + index };
+                                return new { success = true, kind, mainId, subId, index, value = (double)fallback.Value };
+                            }
+                            return new { success = true, kind, mainId, subId, index, value = d.Value };
+                        }
+                    case "int":
+                        {
+                            var v = HmiInternal.GetFeatureInt(obj, mainId, subId, index);
+                            if (v == null)
+                                return new { success = false, error = "特征不存在：" + mainId + "," + subId + "," + index };
+                            return new { success = true, kind, mainId, subId, index, value = v.Value };
+                        }
+                    default:
+                        {
+                            var v = HmiInternal.GetFeatureInt(obj, mainId, subId, index);
+                            if (v != null)
+                                return new { success = true, kind = "int", mainId, subId, index, value = v.Value };
+                            var s = HmiInternal.GetFeatureString(obj, mainId, subId, index);
+                            if (s != null)
+                                return new { success = true, kind = "string", mainId, subId, index, value = s };
+                            var d = HmiInternal.GetFeatureDouble(obj, mainId, subId, index);
+                            if (d != null)
+                                return new { success = true, kind = "double", mainId, subId, index, value = d.Value };
+                            return new { success = false, error = "特征不存在：" + mainId + "," + subId + "," + index };
+                        }
+                    }
+                }));
+        }
+
+        private static string HmiFeatureKind(int mainId)
+        {
+            switch (mainId)
+            {
+                case 1001: case 2000: case 20003:
+                    return "string";
+                case 1002: case 1003:
+                    return "double";
+                case 1000: case 20001:
+                    return "int";
+                case 1270: case 1081:
+                    return "int";
+                case 1029: case 1036: case 1046: // 颜色类
+                    return "color";
+                default:
+                    return "auto";
+            }
+        }
+
+        /// <summary>
+        /// 按 (mainId, subId, index) 写入特征值（按 HmiFeatureKind 分发 Int/Double/String）。
+        /// 写后回读比对（宿主 1270 锁 / 负值钳位时 SetFeatureInt 仍返回 0）。
+        /// body 兼容 int/double/string 三种输入：{{targetType,targetId,mainId,subId,index,value,valueString,valueNumber}}
+        /// </summary>
+        /// <summary>
+        /// 线程封送：ExtMainHmi 对象属宿主 UI 线程。封送失败时不激活/置顶 RTSys，直接返回结构化错误。
+        /// </summary>
+        private static object HmiOnUiThread(Func<object> func)
+        {
+            var result = RTSysProjectModel.UiInvokeAsync(func);
+            return result ?? (object)new { success = false, error = "无法将 HMI 操作封送到 RTSys UI 线程（窗口不可用或响应超时）" };
+        }
+
+        public static object HmiSetFeature(string targetType, int targetId, int mainId, int subId, int value)
+        {
+            return HmiSetFeatureCompat(targetType, targetId, mainId, subId, 0, value, null, null, null);
+        }
+
+        public static object HmiSetFeatureCompat(string targetType, int targetId, int mainId, int subId, int index,
+                                                object value, string valueString, double? valueNumber, int? windowId = null)
+        {
+            return Safe(() =>
+            {
+                var result = HmiOnUiThread(() =>
+                {
+                    IntPtr obj;
+                    string ambError;
+                    if (!ResolveTarget(targetType, targetId, windowId, out obj, out ambError))
+                        return new { success = false, error = ambError, windowId };
+
+                    var kind = HmiFeatureKind(mainId);
+                    int rc = -1;
+                    switch (kind)
+                    {
+                        case "string":
+                            if (valueString == null && value != null) valueString = value.ToString();
+                            if (valueString == null) valueString = string.Empty;
+                            rc = HmiInternal.SetFeatureString(obj, mainId, subId, index, valueString);
+                            HmiInternal.ReflashFeatureAction(obj, mainId, subId, index);
+                            HmiInternal.ReflashFeatureList(obj);
+                            bool refreshedS = HmiInternal.RefreshCanvas();
+                            var afterS = HmiInternal.GetFeatureString(obj, mainId, subId, index);
+                            bool okS = rc == 0 && afterS != null && afterS == valueString;
+                            return new { success = okS, kind = "string", rc, mainId, subId, index, value = valueString,
+                                         afterValue = afterS, refreshed = refreshedS, error = okS ? null : "写后回读不一致（String）" };
+                        case "double":
+                            {
+                                double dv = valueNumber.HasValue ? valueNumber.Value : (value == null ? 0 : Convert.ToDouble(value));
+                                if (mainId == HmiInternal.FeatureSize || mainId == HmiInternal.FeaturePosition)
+                                {
+                                    if (dv < 0 || dv != Math.Truncate(dv))
+                                        return new { success = false, error = "HMI 几何值必须是非负整数" };
+                                    int geometryValue = checked((int)dv);
+                                    rc = HmiInternal.SetFeatureInt(obj, mainId, subId, index, geometryValue);
+                                    HmiInternal.ReflashFeatureAction(obj, mainId, subId, index);
+                                    HmiInternal.ReflashFeatureList(obj);
+                                    bool geometryRefreshed = HmiInternal.RefreshCanvas();
+                                    var geometryAfter = HmiInternal.GetFeatureInt(obj, mainId, subId, index);
+                                    bool geometryOk = rc == 0 && geometryAfter.HasValue && geometryAfter.Value == geometryValue;
+                                    return new { success = geometryOk, kind = "geometry", rc, mainId, subId, index,
+                                                 value = geometryValue, afterValue = geometryAfter, refreshed = geometryRefreshed,
+                                                 error = geometryOk ? null : "写后回读不一致（可能被 1270 位置锁拦截）" };
+                                }
+                                rc = HmiInternal.SetFeatureDouble(obj, mainId, subId, index, dv);
+                                HmiInternal.ReflashFeatureAction(obj, mainId, subId, index);
+                                HmiInternal.ReflashFeatureList(obj);
+                                bool refreshedD = HmiInternal.RefreshCanvas();
+                                var afterD = HmiInternal.GetFeatureDouble(obj, mainId, subId, index);
+                                bool okD = rc == 0 && afterD.HasValue && Math.Abs(afterD.Value - dv) < 1e-9;
+                                if (!okD)
+                                {
+                                    var fb = HmiInternal.GetFeatureInt(obj, mainId, subId, index);
+                                    if (fb.HasValue && Math.Abs(fb.Value - dv) < 1e-9)
+                                    {
+                                        okD = rc == 0;
+                                        return new { success = okD, kind = "double", rc, mainId, subId, index, value = dv,
+                                                     afterValue = fb.Value, refreshed = refreshedD, error = okD ? null : "写后回读不一致（Double）" };
+                                    }
+                                }
+                                return new { success = okD, kind = "double", rc, mainId, subId, index, value = dv,
+                                             afterValue = afterD.HasValue ? (object)afterD.Value : null,
+                                             refreshed = refreshedD,
+                                             error = okD ? null : "写后回读不一致（Double）" };
+                            }
+                        case "int":
+                        case "color":
+                        case "auto":
+                        default:
+                            {
+                                int iv = value == null ? (valueNumber.HasValue ? (int)valueNumber.Value : 0) : Convert.ToInt32(value);
+                                rc = HmiInternal.SetFeatureInt(obj, mainId, subId, index, iv);
+                                HmiInternal.ReflashFeatureAction(obj, mainId, subId, index);
+                                HmiInternal.ReflashFeatureList(obj);
+                                bool refreshed = HmiInternal.RefreshCanvas();
+                                var after = HmiInternal.GetFeatureInt(obj, mainId, subId, index);
+                                bool ok = rc == 0 && after.HasValue && after.Value == iv;
+                                return new { success = ok, kind = "int", rc, mainId, subId, index, value = iv,
+                                             afterValue = after.HasValue ? (object)after.Value : null,
+                                             refreshed,
+                                             error = ok ? null : "写后回读不一致（可能被 1270 位置锁或负值钳位拦截）" };
+                            }
+                    }
+                });
+                if (result == null)
+                    return new { success = false, error = "无法封送到 RTSys UI 线程（RTSys 窗口未激活 / HMI 未处于编辑状态），请在 RTSys 中双击打开目标 HMI 画面后重试" };
+                return result;
+            });
+        }
+
+        /// <summary>仅供用户明确要求激活 RTSys 窗口时使用；HMI 操作不依赖前台状态。</summary>
+        public static object ActivateRtsysWindow()
+        {
+            return Safe(() =>
+            {
+                PlugInLog.Log("activate_rtsys_window invoked");
+                bool ok = RTSysProjectModel.EnsureForegroundWindow();
+                return new { success = ok, activated = ok, error = ok ? null : "RTSys 主窗口未找到或无法激活" };
+            });
+        }
+
+        /// <summary>设置控件几何，并校验宿主实际写入值。</summary>
+        public static object HmiSetGeometry(Dictionary<string, object> body)
+        {
+            return Safe(() => HmiOnUiThread(() =>
+            {
+                var result = DoHmiSetGeometry(body);
+                if (result == null)
+                    return new { success = false, error = "无法封送到 RTSys UI 线程（RTSys 窗口未激活 / HMI 未处于编辑状态），请在 RTSys 中双击打开目标 HMI 画面后重试" };
+                return result;
+            }));
+        }
+
+        private static object DoHmiSetGeometry(Dictionary<string, object> body)
+        {
+            string targetType = GetString(body, "targetType") ?? "control";
+            int targetId = GetInt(body, "targetId") ?? 0;
+            int? x = GetInt(body, "x");
+            int? y = GetInt(body, "y");
+            int? width = GetInt(body, "width");
+            int? height = GetInt(body, "height");
+            int? windowId = GetInt(body, "windowId");
+            bool isSize = GetBool(body, "isSize");
+            bool refresh = GetBool(body, "refresh");
+
+            if ((!isSize && !x.HasValue && !y.HasValue) || (isSize && !width.HasValue && !height.HasValue))
+                return new { success = false, error = isSize ? "尺寸模式至少需要 width 或 height" : "位置模式至少需要 x 或 y" };
+            if ((x.HasValue && x.Value < 0) || (y.HasValue && y.Value < 0) ||
+                (width.HasValue && width.Value < 0) || (height.HasValue && height.Value < 0))
+                return new { success = false, error = "HMI 几何值不能为负数" };
+
+            IntPtr obj;
+            string ambError;
+            if (!ResolveTarget(targetType, targetId, windowId, out obj, out ambError))
+                return new { success = false, error = ambError, windowId };
+
+            var writes = new List<object>();
+            int rc = 0;
+            bool success = true;
+            if (!isSize)
+            {
+                if (x.HasValue) success = SetGeometryValue(obj, HmiInternal.FeaturePosition, 0, x.Value, out rc, writes);
+                if (success && y.HasValue) success = SetGeometryValue(obj, HmiInternal.FeaturePosition, 1, y.Value, out rc, writes);
+            }
+            else
+            {
+                if (width.HasValue) success = SetGeometryValue(obj, HmiInternal.FeatureSize, 0, width.Value, out rc, writes);
+                if (success && height.HasValue) success = SetGeometryValue(obj, HmiInternal.FeatureSize, 1, height.Value, out rc, writes);
+            }
+            if (refresh) HmiInternal.ReflashFeatureList(obj);
+            bool canvasRefreshed = HmiInternal.RefreshCanvas();
+            return new { success, rc, targetType, targetId, refreshed = canvasRefreshed, featureListRefreshed = refresh, writes };
+            }
+
+        private static bool SetGeometryValue(IntPtr obj, int mainId, int subId, int value, out int rc, List<object> writes)
+        {
+            rc = HmiInternal.SetFeatureInt(obj, mainId, subId, 0, value);
+            HmiInternal.ReflashFeatureAction(obj, mainId, subId, 0);
+            var after = HmiInternal.GetFeatureInt(obj, mainId, subId, 0);
+            bool success = rc == 0 && after == value;
+            writes.Add(new { mainId, subId, value, after, success });
+            return success;
+        }
+
+        /// <summary>
+        /// 在当前打开的 HMI 文件里新建一个控件：NewAndAddControl(id,type,x,y,w,h)。
+        /// body: { windowId, controlId, controlType, x, y, width, height }
+        /// </summary>
+        public static object HmiCreateControl(Dictionary<string, object> body)
+        {
+            return Safe(() => HmiOnUiThread(() =>
+            {
+                var file = HmiInternal.GetCurrentFileClass();
+                if (file == IntPtr.Zero)
+                    return new { success = false, error = "未打开任何 HMI 文件" };
+
+                int windowId = GetInt(body, "windowId") ?? 10;
+                int controlId = GetInt(body, "controlId") ?? 1;
+                int controlType = GetInt(body, "controlType") ?? HmiDefaultButtonType();
+                int x = GetInt(body, "x") ?? 0;
+                int y = GetInt(body, "y") ?? 0;
+                int w = GetInt(body, "width") ?? 100;
+                int h = GetInt(body, "height") ?? 40;
+                if (x < 0 || y < 0 || w < 0 || h < 0)
+                    return new { success = false, error = "HMI 几何值不能为负数" };
+
+                var win = HmiInternal.FindWindow(file, windowId);
+                if (win == IntPtr.Zero)
+                    return new { success = false, error = "窗口不存在：" + windowId };
+
+                if (HmiInternal.FindControl(win, controlId) != IntPtr.Zero)
+                    return new { success = false, error = "控件已存在：window " + windowId + " control " + controlId };
+
+                var ctl = HmiInternal.NewAndAddControl(win, controlId, controlType, x, y, w, h);
+                if (ctl == IntPtr.Zero)
+                    return new { success = false, error = "NewAndAddControl 失败（控件类型可能需要对应控件 DLL）" };
+                HmiInternal.ReflashFeatureAction(ctl, HmiInternal.FeaturePosition, 0, 0);
+                HmiInternal.ReflashFeatureAction(ctl, HmiInternal.FeaturePosition, 1, 0);
+                HmiInternal.ReflashFeatureAction(ctl, HmiInternal.FeatureSize, 0, 0);
+                HmiInternal.ReflashFeatureAction(ctl, HmiInternal.FeatureSize, 1, 0);
+                var actualX = HmiInternal.GetFeatureInt(ctl, HmiInternal.FeaturePosition, 0, 0);
+                var actualY = HmiInternal.GetFeatureInt(ctl, HmiInternal.FeaturePosition, 1, 0);
+                var actualW = HmiInternal.GetFeatureInt(ctl, HmiInternal.FeatureSize, 0, 0);
+                var actualH = HmiInternal.GetFeatureInt(ctl, HmiInternal.FeatureSize, 1, 0);
+                HmiInternal.ReflashFeatureList(ctl);
+                bool refreshed = HmiInternal.RefreshCanvas();
+                if (actualX != x || actualY != y || actualW != w || actualH != h)
+                    return new { success = false, error = "新控件已创建，但几何回读与请求不一致", windowId, controlId, actualX, actualY, actualW, actualH, refreshed };
+
+                return new
+                {
+                    success = true,
+                    windowId,
+                    controlId,
+                    controlType,
+                    x, y, w, h,
+                    refreshed
+                };
+            }));
+        }
+
+        /// <summary>Button 控件类型（ExtMainHmi 内置）。</summary>
+        private static int HmiDefaultButtonType() => 609;
+
+        /// <summary>
+        /// 按（可选 windowId + 类型）+ 编号解析目标对象指针。
+        /// 控件编号在各窗口间重复（键盘窗口占用 1~47，工作画面 1~17 全重叠），
+        /// 因此未指定 windowId 时若多个窗口命中同一编号，返回歧义错误而非静默命中首窗。
+        /// 指定 windowId 时先 FindWindow(windowId) 再 FindControl(该窗口, controlId)。
+        /// </summary>
+        private static bool ResolveTarget(string targetType, int targetId, int? windowId, out IntPtr obj, out string error)
+        {
+            obj = IntPtr.Zero;
+            error = null;
+            string kind = string.Equals(targetType, "control", StringComparison.OrdinalIgnoreCase) ? "control" : "window";
+            var file = HmiInternal.GetCurrentFileClass();
+            if (file == IntPtr.Zero)
+            {
+                error = "未打开任何 HMI 文件（请先在 RTSys 中打开 .hmi 画面）";
+                return false;
+            }
+
+            if (kind == "window")
+            {
+                obj = HmiInternal.FindWindow(file, targetId);
+                if (obj == IntPtr.Zero)
+                    error = "窗口不存在：" + targetId;
+                return obj != IntPtr.Zero;
+            }
+
+            // kind == control
+            if (windowId.HasValue)
+            {
+                var w = HmiInternal.FindWindow(file, windowId.Value);
+                if (w == IntPtr.Zero)
+                {
+                    error = "窗口不存在：" + windowId.Value;
+                    return false;
+                }
+                obj = HmiInternal.FindControl(w, targetId);
+                if (obj == IntPtr.Zero)
+                    error = "窗口 " + windowId.Value + " 内不存在控件：" + targetId;
+                return obj != IntPtr.Zero;
+            }
+
+            var hits = new List<int>();
+            foreach (var win in HmiInternal.EnumerateChain(file, HmiInternal.OffWindowHead))
+            {
+                if (HmiInternal.FindControl(win, targetId) != IntPtr.Zero)
+                    hits.Add(HmiInternal.GetFeatureInt(win, HmiInternal.FeatureWindowId, 0) ?? 0);
+            }
+            if (hits.Count == 0)
+            {
+                error = "目标对象不存在：control[" + targetId + "]（所有窗口均无此编号）";
+                return false;
+            }
+            if (hits.Count > 1)
+            {
+                error = "控件编号 " + targetId + " 在 " + hits.Count + " 个窗口重复（窗口 " +
+                        string.Join(",", hits) + "），无法定位；请指定 windowId";
+                return false;
+            }
+
+            var only = HmiInternal.FindWindow(file, hits[0]);
+            obj = only == IntPtr.Zero ? IntPtr.Zero : HmiInternal.FindControl(only, targetId);
+            if (obj == IntPtr.Zero)
+                error = "目标对象不存在：control[" + targetId + "] @窗口 " + hits[0];
+            return obj != IntPtr.Zero;
+        }
+
+        /// <summary>控件类型 ID → 名称映射（ExtMainHmi 内置 + ExtHmiControl_W 自定义）。</summary>
+        private static string HmiControlTypeName(int typeId)
+        {
+            switch (typeId)
+            {
+                case 11: return "Window";
+                case 600: return "BitState";
+                case 601: return "WordState";
+                case 602: return "BitModify";
+                case 603: return "WordModify";
+                case 604: return "BitSwitch";
+                case 605: return "WordSwitch";
+                case 606: return "List";
+                case 607: return "Slip";
+                case 608: return "KeyButton";
+                case 609: return "Button";
+                case 610: return "KeyButton";
+                case 611: return "String show";
+                case 612: return "Value show";
+                case 616: return "Animation";
+                case 620: return "Timer";
+                case 621: return "Timer";
+                case 630: return "FlowBlock";
+                case 631: return "FlowBlock";
+                case 640: return "Timer";
+                case 641: return "Timer";
+                case 645: return "Table";
+                case 622: return "Pie Chart";
+                case 623: return "Bar Chart";
+                case 624: return "Meter";
+                case 625: return "XY Chart";
+                case 626: return "Trend Chart";
+                case 627: return "Data Group Show";
+                case 635: return "Event Show";
+                case 636: return "Alarm Show";
+                case 637: return "Alarm Bar";
+                case 700: return "Line/Polyline/Polygon";
+                case 701: return "Ellipse/Arc/Sector";
+                case 702: return "Rect";
+                case 703: return "StaticText";
+                case 704: return "Picture";
+                case 705: return "Import";
+                case 706: return "Bezier";
+                case 707: return "Import";
+                case 708: return "Import";
+                case 709: return "Import";
+                case 710: return "Import";
+                case 711: return "Import";
+                case 712: return "Scale";
+                case 713: return "String show";
+                case 714: return "File3Edit";
+                case 715: return "CAD";
+                case 716: return "File browser";
+                case 717: return "Report view";
+                case 719: return "Progress Bar";
+                case 720: return "Dynamic Scale";
+                case 721: return "Tree";
+                case 722: return "Scheduling";
+                case 723: return "FlowBlock";
+                case 724: return "Bar Code";
+                case 725: return "Radio Button";
+                case 726: return "Check Box";
+                case 727: return "Message Out";
+                case 728: return "LayDate";
+                case 730: return "Menu";
+                case 731: return "Tab control";
+                case 732: return "Spin Button";
+                case 733: return "Group box";
+                case 734: return "Panel";
+                case 735: return "Recipe View";
+                case 736: return "Basic Extend";
+                case 900: return "File3Edit";
+                case 901: return "Custom";
+                default: return "Type" + typeId;
+            }
         }
     }
 }

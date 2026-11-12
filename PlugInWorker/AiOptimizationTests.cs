@@ -707,7 +707,7 @@ namespace RTSys.PlugIn
             {
                 var subSvc2 = new AiService();
                 int apiCalls = 0;
-                subSvc2._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                subSvc2._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) =>
                 { apiCalls++; return new StreamResult { Content = new List<Dictionary<string, object>>(), StopReason = "end_turn" }; };
                 var cts = new CancellationTokenSource();
                 cts.Cancel();
@@ -724,7 +724,7 @@ namespace RTSys.PlugIn
             {
                 var subSvc3 = new AiService();
                 int apiCalls = 0;
-                subSvc3._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                subSvc3._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) =>
                 {
                     apiCalls++;
                     if (apiCalls == 1)
@@ -757,7 +757,7 @@ namespace RTSys.PlugIn
             {
                 var subSvc4 = new AiService();
                 int apiCalls = 0;
-                subSvc4._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                subSvc4._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) =>
                 {
                     apiCalls++;
                     return new StreamResult
@@ -848,7 +848,7 @@ namespace RTSys.PlugIn
             {
                 var subSvc3 = new AiService();
                 int apiCalls = 0;
-                subSvc3._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                subSvc3._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) =>
                 {
                     apiCalls++;
                     if (apiCalls == 1)
@@ -913,13 +913,13 @@ namespace RTSys.PlugIn
             {
                 // (a) CallApiOnce 返回 null（API 全失败）→ success=false，conclusion 含 "API failed"
                 var svcA = new AiService();
-                svcA._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) => null;
+                svcA._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) => null;
                 var (concA, okA) = svcA.RunSubagent("fail case", "research", 5, CancellationToken.None);
                 bool aFailed = !okA && concA.Contains("API failed");
                 // (b) 跑完但无 text（只 thinking、StopReason=end_turn → 直接退出，lastText 空）→ success=false
                 var svcB = new AiService();
                 int callsB = 0;
-                svcB._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                svcB._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) =>
                 {
                     callsB++;
                     return new StreamResult
@@ -936,45 +936,37 @@ namespace RTSys.PlugIn
                     $"FAIL: aFailed={aFailed}(okA={okA} concA=[{concA}]) bFailed={bFailed}(okB={okB} callsB={callsB} concB=[{concB}])"));
             }
 
-            // --- P-S17: thinking 按 agentType（item 3）—— 全局开时 review/debug 跟随（budget=_budgetTokens），research/explore 始终关 ---
+            // --- P-S17: thinking 按 agentType（item 3）—— 全局强度时 review/debug/verify 跟随，research/explore 始终 off ---
             {
-                // 注意：AiService 构造函数调 LoadConfig() 会从磁盘 config 覆盖静态 _enableThinking/_budgetTokens，
+                // 注意：AiService 构造函数调 LoadConfig() 会从磁盘 config 覆盖静态 _reasoningEffort，
                 // 故必须在 new AiService() 【之后】设置测试值，RunSubagent 才读得到。
-                (bool et, int bt) Capture(string type, bool globalThinking, int budget)
+                string Capture(string type, string effort)
                 {
                     var capSvc = new AiService();          // LoadConfig 在此运行，覆盖静态字段
-                    _enableThinking = globalThinking;      // 构造之后再覆盖，确保 RunSubagent 读到测试值
-                    _budgetTokens = budget;
-                    bool captured = false; bool etVal = false; int btVal = -1;
-                    capSvc._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                    _reasoningEffort = effort;             // 构造之后再覆盖，确保 RunSubagent 读到测试值
+                    string etVal = null;
+                    capSvc._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct2) =>
                     {
-                        if (!captured) { captured = true; etVal = et; btVal = bt; }
+                        if (etVal == null) etVal = re;
                         return new StreamResult { Content = new List<Dictionary<string, object>> { TextBlock("done") }, StopReason = "end_turn" };
                     };
                     capSvc.RunSubagent("t", type, 3, CancellationToken.None);
-                    return (etVal, btVal);
+                    return etVal;
                 }
-                bool savedEt = _enableThinking;
-                int savedBt = _budgetTokens;
+                string savedEffort = _reasoningEffort;
                 try
                 {
-                    // 全局开（budget=7777）：review/debug → et=true,bt=7777；research/explore → et=false,bt=0
-                    var rev = Capture("review",   true, 7777);
-                    var dbg = Capture("debug",    true, 7777);
-                    var vrf = Capture("verify",   true, 7777);
-                    var res = Capture("research", true, 7777);
-                    var exp = Capture("explore",  true, 7777);
-                    bool onOk  = rev.et && rev.bt == 7777 && dbg.et && dbg.bt == 7777 && vrf.et && vrf.bt == 7777;
-                    bool offOk = !res.et && res.bt == 0 && !exp.et && exp.bt == 0;
-                    // 全局关：review 也应关
-                    var revOff = Capture("review", false, 7777);
-                    bool globalOffOk = !revOff.et && revOff.bt == 0;
+                    // 全局 high：review/debug/verify → high；research/explore → off
+                    bool onOk  = Capture("review", "high") == "high" && Capture("debug", "high") == "high" && Capture("verify", "high") == "high";
+                    bool offOk = Capture("research", "high") == "off" && Capture("explore", "high") == "off";
+                    // 全局 off：review 也应 off
+                    bool globalOffOk = Capture("review", "off") == "off";
                     bool ok = onOk && offOk && globalOffOk;
                     results.Add(("P-S17 thinking按agentType", ok,
-                        ok ? "OK: 全局开→review/debug/verify et=true,bt=_budgetTokens；research/explore et=false；全局关→全关" :
-                        $"FAIL: review(et={rev.et},bt={rev.bt}) debug(et={dbg.et},bt={dbg.bt}) verify(et={vrf.et},bt={vrf.bt}) research(et={res.et},bt={res.bt}) explore(et={exp.et},bt={exp.bt}) review-global-off(et={revOff.et},bt={revOff.bt})"));
+                        ok ? "OK: 全局 high→review/debug/verify 跟随 high；research/explore off；全局 off→全 off" :
+                        $"FAIL: review/debug/verify/research/explore/global-off effort 不符合预期"));
                 }
-                finally { _enableThinking = savedEt; _budgetTokens = savedBt; }
+                finally { _reasoningEffort = savedEffort; }
             }
 
             // --- P-S18: verify prompt 含 PASS/FAIL/PARTIAL 三态判定 + 明确只读（不编译）—— 验证语义核心 ---
@@ -997,7 +989,7 @@ namespace RTSys.PlugIn
                 svcA._model = "main-m";
                 svcA._lightModel = "light-m";
                 string capA = null;
-                svcA._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                svcA._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) =>
                 { capA = model; return new StreamResult { Content = new List<Dictionary<string, object>>(), StopReason = "end_turn" }; };
                 svcA.RunSubagent("t", "research", 3, CancellationToken.None);
                 bool okA = capA == "light-m";
@@ -1007,7 +999,7 @@ namespace RTSys.PlugIn
                 svcB._model = "main-m";
                 svcB._lightModel = "";
                 string capB = null;
-                svcB._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                svcB._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) =>
                 { capB = model; return new StreamResult { Content = new List<Dictionary<string, object>>(), StopReason = "end_turn" }; };
                 svcB.RunSubagent("t", "research", 3, CancellationToken.None);
                 bool okB = capB == "main-m";
@@ -1017,7 +1009,7 @@ namespace RTSys.PlugIn
                 svcC._model = "main-m";
                 svcC._lightModel = "light-m";
                 string capC = null;
-                svcC._callApiOnceOverride = (sys, tools, msgs, mt, et, bt, suppress, model, ct) =>
+                svcC._callApiOnceOverride = (sys, tools, msgs, mt, re, suppress, model, ct) =>
                 { capC = model; return new StreamResult { Content = new List<Dictionary<string, object>>(), StopReason = "end_turn" }; };
                 svcC.RunSubagent("t", "verify", 3, CancellationToken.None);
                 bool okC = capC == "main-m";

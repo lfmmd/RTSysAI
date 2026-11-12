@@ -49,6 +49,7 @@
     <Compile Include="ZMotionErrors.cs" />
     <Compile Include="RTSysHandlers.cs" />
     <Compile Include="HmiFile.cs" />
+    <Compile Include="HmiInternal.cs" />
     <Compile Include="RTSysEditor.cs" />
     <Compile Include="RTSysProjectModel.cs" />
     <Compile Include="ApiServer.cs" />

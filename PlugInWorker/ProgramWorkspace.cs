@@ -837,6 +837,9 @@ namespace RTSys.PlugIn
         public static void WriteLocalSource(string name, string source)
         {
             if (string.IsNullOrEmpty(name)) throw new ArgumentException("程序名不能为空", nameof(name));
+            // 防御：调用方传入带 .bas 后缀的程序名时统一剥掉，避免 TaskMain 与 TaskMain.bas 双份并存。
+            if (name.EndsWith(".bas", StringComparison.OrdinalIgnoreCase))
+                name = name.Substring(0, name.Length - 4);
             source = source ?? "";
             var path = GetProgramPath(name);
             var metaPath = GetMetaPath(name);
@@ -895,10 +898,17 @@ namespace RTSys.PlugIn
             }
         }
 
-        /// <summary>获取所有待同步到控制器的程序名（本地已修改、尚未下载到控制器）。</summary>
+        /// <summary>获取所有待同步到控制器的程序名（本地已修改、尚未下载到控制器）。
+        /// 仅返回当前项目内（project）的 dirty 项，不把本地缓存的 local-only 残留误报为待上传。
+        /// 无打开项目时返回空。</summary>
         public static List<string> GetPendingUploads()
         {
-            return ListLocalPrograms().Where(p => p.isDirty).Select(p => p.name).ToList();
+            var projectNames = new HashSet<string>(
+                ListProjectPrograms().Select(p => p.name), StringComparer.OrdinalIgnoreCase);
+            if (projectNames.Count == 0) return new List<string>();
+            return ListLocalPrograms()
+                .Where(p => p.isDirty && projectNames.Contains(p.name))
+                .Select(p => p.name).ToList();
         }
 
         // ---------- 项目文件操作私有实现 ----------

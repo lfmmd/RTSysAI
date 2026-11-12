@@ -102,7 +102,10 @@ namespace RTSys.PlugIn
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, string lParam);
         [DllImport("user32.dll")] private static extern int GetDlgCtrlID(IntPtr hWnd);
         [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr GetWindowLong(IntPtr hWnd, int index);
-        [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowLong(IntPtr hWnd, int index, IntPtr value);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
+        private static extern IntPtr SetWindowLong32(IntPtr hWnd, int index, IntPtr value);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+        private static extern IntPtr SetWindowLong64(IntPtr hWnd, int index, IntPtr value);
         [DllImport("user32.dll")] private static extern IntPtr CallWindowProc(IntPtr prev, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
         [DllImport("kernel32.dll")] private static extern void SetLastError(uint dwErrCode);
@@ -113,6 +116,14 @@ namespace RTSys.PlugIn
         private static extern UIntPtr VirtualQuery(IntPtr addr, out MEMORY_BASIC_INFORMATION info, UIntPtr size);
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi)] private static extern IntPtr GetModuleHandle(string name);
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi)] private static extern IntPtr GetProcAddress(IntPtr module, string name);
+
+        // Window activation / focus
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MEMORY_BASIC_INFORMATION
@@ -395,7 +406,7 @@ namespace RTSys.PlugIn
                 {
                     // 只恢复实际被挂钩的那个窗口，避免窗口重建后把旧 WndProc 写到新窗口。
                     if (_hooked && _hookedHwnd != IntPtr.Zero && IsWindow(_hookedHwnd))
-                        SetWindowLong(_hookedHwnd, GWLP_WNDPROC, _origWndProc);
+                        SetWindowLongPtr(_hookedHwnd, GWLP_WNDPROC, _origWndProc);
                 }
                 catch { }
                 _hooked = false;
@@ -875,7 +886,31 @@ namespace RTSys.PlugIn
                 }
                 return _selectItem(new IntPtr(obj.ToInt32() + OFF_TREE_OBJECT), item) != 0;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("RTSysProjectModel.UiInvoke", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 在宿主 UI 线程同步执行 func 并返回结果。
+        /// ExtMainHmi 对象属于宿主 UI 线程；HTTP/asm 路径（ApiServer）须经它封送，
+        /// 不能在 HttpListener 回调线程直接碰 MFC 对象。
+        /// 封送失败（无 hook / 超时）时回退到直接执行（独立进程测试）。
+        /// </summary>
+        internal static T UiInvokeAsync<T>(Func<T> func)
+        {
+            T result = default(T);
+            bool ok = UiInvoke(() => { result = func(); });
+            if (!ok)
+            {
+                // 无法封送到宿主 UI 线程（RTSys 窗口未激活 / 钩子未挂 / 超时）。
+                // 不再在调用线程（线程池 / HTTP 回调）直接碰 MFC 对象——ExtMainHmi 的对象属 UI 线程，
+                // 非 UI 线程调用会抛 NullReferenceException。失败时返回 default，由调用方自行返回结构化错误。
+                return default(T);
+            }
+            return result;
         }
 
         /// <summary>
@@ -912,7 +947,11 @@ namespace RTSys.PlugIn
                 PlugInLog.Log("RTSysProjectModel.UiInvoke: SendMessageTimeout failed (error=" + Marshal.GetLastWin32Error() + ")");
                 return false;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                PlugInLog.LogException("RTSysProjectModel.UiInvoke", ex);
+                return false;
+            }
         }
 
         private static bool EnsureHook()
@@ -934,7 +973,7 @@ namespace RTSys.PlugIn
                 // 窗口重建：先在旧窗口上恢复原 WndProc（若仍有效），再挂到新窗口。
                 if (_hooked && _hookedHwnd != IntPtr.Zero && IsWindow(_hookedHwnd))
                 {
-                    try { SetWindowLong(_hookedHwnd, GWLP_WNDPROC, _origWndProc); } catch { }
+                    try { SetWindowLongPtr(_hookedHwnd, GWLP_WNDPROC, _origWndProc); } catch { }
                 }
                 _hooked = false;
                 _hookedHwnd = IntPtr.Zero;
@@ -942,7 +981,7 @@ namespace RTSys.PlugIn
                 _wndProcDelegate = WndProc;
                 IntPtr ptr = Marshal.GetFunctionPointerForDelegate(_wndProcDelegate);
                 SetLastError(0);
-                IntPtr prev = SetWindowLong(_mainHwnd, GWLP_WNDPROC, ptr);
+                IntPtr prev = SetWindowLongPtr(_mainHwnd, GWLP_WNDPROC, ptr);
                 int err = Marshal.GetLastWin32Error();
                 if (prev == IntPtr.Zero && err != 0)
                 {
@@ -955,6 +994,13 @@ namespace RTSys.PlugIn
                 _hookedHwnd = _mainHwnd;
                 return true;
             }
+        }
+
+        private static IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value)
+        {
+            return IntPtr.Size == 4
+                ? SetWindowLong32(hWnd, index, value)
+                : SetWindowLong64(hWnd, index, value);
         }
 
         private static IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -983,6 +1029,48 @@ namespace RTSys.PlugIn
                 return IntPtr.Zero;
             }
             return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
+        }
+
+        /// <summary>
+        /// 强制把 RTSys 主窗口拉到前台并获得焦点，使后续 UI 线程封送（UiInvoke）有目标可投递。
+        /// 对 minimized/hidden/hung 的窗口都会尝试恢复。供 AI 写入口失败后的自动恢复与手动激活调用。
+        /// </summary>
+        public static bool EnsureForegroundWindow()
+        {
+            try
+            {
+                IntPtr hwnd;
+                lock (_lock)
+                {
+                    if (_mainHwnd == IntPtr.Zero)
+                        _mainHwnd = Process.GetCurrentProcess().MainWindowHandle;
+                    hwnd = _mainHwnd;
+                }
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return false;
+
+                // 仅恢复最小化窗口。对已最大化窗口调用 SW_RESTORE 会将其退回普通大小。
+                if (IsIconic(hwnd))
+                    ShowWindow(hwnd, 9); // SW_RESTORE（若原为最大化，Windows 会恢复为最大化）
+
+                uint curThread = GetCurrentThreadId();
+                uint fgThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+                bool attached = false;
+                if (curThread != fgThread)
+                    attached = AttachThreadInput(curThread, fgThread, true);
+
+                try
+                {
+                    bool ok = SetForegroundWindow(hwnd);
+                    SetWindowPos(hwnd, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040); // SWP_NOMOVE|SWP_NOSIZE|SWP_SHOWWINDOW
+                    return ok;
+                }
+                finally
+                {
+                    if (attached)
+                        AttachThreadInput(curThread, fgThread, false);
+                }
+            }
+            catch { return false; }
         }
 
         private static IntPtr FindConfirmationDialog()

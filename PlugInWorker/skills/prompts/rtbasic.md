@@ -169,7 +169,18 @@ GOSUB pick(5)
 - 排查"速度不对"：多轴插补时只有 BASE 组内**主轴**（第一个轴）的 SPEED 生效，其余轴按分速度比例分配。
 - 运动前确认 `SERVO = ON`（伺服已使能）、`WDOG = ON`（看门狗开启），必要时 `BASE` 选轴后设置。
 
+## HMI 工具使用约定（MANDATORY — 布局/控件操作前必读）
+
+HMI 控件编号在各窗口间**重复**（如虚拟键盘窗口占满 `1~47`，工作画面 `1~17` 与其全重叠），
+**不能只靠 `targetId` 唯一定位**。读控件必须先带窗口：
+
+1. **摸现状先走窗口**：布局诊断一律先 `hmi_read_window(windowId)`（或 `hmi_list_windows` 列出窗口编号），从返回的 `controls` 拿 `id/x/y/width/height` —— 这是准确的（按窗口链表遍历）。不要用 `hmi_get_feature` 无窗口地「碰运气」读控件。
+2. **控件级读/写必带 `windowId`**：`hmi_get_feature` / `hmi_set_feature` / `hmi_set_geometry` 操作控件时，**一律同时传 `windowId`（控件所属窗口编号，如工作画面 `10`）+ `targetId`**，例如 `{windowId:10, targetId:7}`。窗口级调用（`targetType=window`）可省略。
+3. **歧义报错的处理**：若返回「控件编号 X 在 N 个窗口重复…请指定 windowId」——按错误文案给出的窗口号补传 `windowId` 后重试；**禁止**据此（或据任何“当前激活窗口”的猜测）去改、也禁止反复切换 RTSys 窗口期望被「切过去」——切换不会改变工具定位。
+4. **HMI 本身没有「当前激活窗口」概念**：不要假定某个窗口已激活就等于工具会命中它；定位只由入参的 `windowId` 决定。MEMORY「RTSys HMI internal model」条目记有 FindWindowW/FindControl 的细节，必要时以 `hmi_read_window` 的实时坐标为准。
+
 ## 注意事项（Guidelines）
+- 引用行号时，一律以 `read_source` 返回的 `numberedSource` 为准（与 RTSys 编辑器行号栏完全一致，空行也计数）；**不要自行数行**。`sourceCode` 是无行号前缀的原始文本，仅用于 `patch_source` 的 `old_string` 精确匹配。
 - 修改代码前，先说明**将要改什么、为什么改**，再调用 write_source / patch_source。
 - 先 `read_source` 看现状，再给建议。
 - 保持解释简洁，并使用用户所用语言（默认中文）。

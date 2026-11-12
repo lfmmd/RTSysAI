@@ -9,6 +9,12 @@ namespace RTSys.PlugIn
     {
         // ---- Tool Execution ----
 
+        private static readonly HashSet<string> DisabledHmiTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "hmi_list_windows", "hmi_read_window", "hmi_get_feature",
+            "hmi_set_feature", "hmi_set_geometry", "hmi_create_control"
+        };
+
         private static readonly HashSet<string> WriteTools = new HashSet<string>
         {
             "write_source", "patch_source", "write_vr", "write_table",
@@ -16,7 +22,9 @@ namespace RTSys.PlugIn
             "restore_backup",
             "save_project", "open_project",
             "run_program", "stop_program",
-            "update_memory"
+            "update_memory",
+            // HMI 内部对象模型写操作（调用 RTSys 进程内 ExtMainHmi.dll 导出符号）
+            "hmi_set_feature", "hmi_set_geometry", "hmi_create_control"
         };
 
         // 低风险写工具子集：程序编辑（写/补丁/新建）+ 编译 + 保存/打开工程文件。纯工程文件操作，可重建、不碰实时控制器，
@@ -54,13 +62,21 @@ namespace RTSys.PlugIn
             "list_digital_io", "read_digital_io",
             "list_analogue_io", "read_analogue_io",
             "list_alarms",
-            "read_hmi"
+            // HMI handlers marshal native object access to the RTSys UI thread themselves.
+            "hmi_list_windows", "hmi_read_window", "hmi_get_feature",
+            "hmi_set_feature", "hmi_set_geometry", "hmi_create_control"
         };
 
         private string ExecuteTool(string name, Dictionary<string, object> input)
         {
             try
             {
+                if (DisabledHmiTools.Contains(name))
+                    return "BLOCKED: HMI 操作能力目前已暂停，不能读取或修改 HMI 页面。";
+
+                if (!AiToolPolicy.IsEnabled(name, ToolMode))
+                    return "BLOCKED: Tool '" + name + "' is disabled by the current tool profile (" + ToolMode + "). Change the tool profile in settings to enable it.";
+
                 // P0: lookup_command 同会话去重 — 避免重复查询同一命令的完整 HTML（每次 ~16KB）。
                 // 仅主线生效：子 agent 的调用在隔离 subMessages，dedup 扫 _conversationHistory 既扫不到自己的、
                 // 又会误命中主线历史返回误导性 note（子 agent 看不到那个 tool_result）。子 agent 靠 prompt + cap 兜底。
@@ -229,7 +245,48 @@ namespace RTSys.PlugIn
                 case "list_plugins": return RTSysHandlers.ListAttachedPlugins();
                 case "open_project": return RTSysHandlers.OpenProject(input);
                 case "list_project_items": return RTSysHandlers.ListProjectItems();
-                case "read_hmi": return HmiFile.Read(GetStr(input, "name"));
+                case "hmi_list_windows": return RTSysHandlers.HmiListWindows();
+                case "hmi_read_window": return RTSysHandlers.HmiReadWindow(GetInt(input, "windowId"));
+                case "hmi_get_feature": return RTSysHandlers.HmiGetFeature(
+                    GetStr(input, "targetType") ?? "control",
+                    GetInt(input, "targetId"),
+                    GetInt(input, "mainId"),
+                    GetInt(input, "subId"),
+                    GetInt(input, "index", 0),
+                    input.ContainsKey("windowId") ? (int?)GetInt(input, "windowId") : (int?)null);
+                case "hmi_set_feature":
+                    {
+                        object v = input.ContainsKey("value") ? input["value"] : null;
+                        // 传 int/数值时 valueNumber 给数值通道；字符串值走 valueString。
+                        // 之前无条件把 v.ToString() 塞给 valueString，导致数值 1003 写成字符串通道而挂。
+                        double? vn = null;
+                        object vnRaw;
+                        if (input.TryGetValue("valueNumber", out vnRaw) && vnRaw != null)
+                        {
+                            vn = Convert.ToDouble(vnRaw);
+                        }
+                        if (vn == null && v != null && !(v is bool) && !(v is string))
+                        {
+                            try { vn = Convert.ToDouble(v); } catch { }
+                        }
+                        string vs = GetStr(input, "valueString");
+                        if (vs == null && v is string) vs = (string)v;
+                        return RTSysHandlers.HmiSetFeatureCompat(
+                            GetStr(input, "targetType") ?? "control",
+                            GetInt(input, "targetId"),
+                            GetInt(input, "mainId"),
+                            GetInt(input, "subId"),
+                            GetInt(input, "index", 0),
+                            v, vs, vn,
+                            input.ContainsKey("windowId") ? (int?)GetInt(input, "windowId") : (int?)null);
+                    }
+                case "hmi_set_geometry":
+                    // value/valueNumber 可能以字符串传入；HmiSetGeometry 用 GetDouble 解析并写 SetFeatureDouble(1002/1003)，
+                    // 故此处仅透传 body（RTSysHandlers 内 Safe 兜底异常信息）。
+                    return RTSysHandlers.HmiSetGeometry(input);
+                case "hmi_create_control": return RTSysHandlers.HmiCreateControl(input);
+                case "activate_rtsys_window":
+                    return RTSysHandlers.ActivateRtsysWindow();
                 case "create_program": return RTSysHandlers.CreateProgram(input);
                 case "delete_program": return RTSysHandlers.DeleteProgram(GetStr(input, "name"));
                 case "rename_program": return RTSysHandlers.RenameProgram(GetStr(input, "name"), input);
@@ -409,7 +466,9 @@ namespace RTSys.PlugIn
                 // 浅拷贝：CallApiStream 会在最后一个 tool 上加 cache_control，
                 // 浅拷贝只复制 List 引用，不动内部 Dictionary，加 cache_control 时
                 // new Dictionary(...) 创建新对象，不影响缓存。
-                return new List<Dictionary<string, object>>(_cachedToolDefs);
+                return AiToolPolicy.Filter(_cachedToolDefs, ToolMode)
+                    .Where(t => !DisabledHmiTools.Contains(GetStringValue(t, "name")))
+                    .ToList();
             }
         }
 
@@ -419,7 +478,9 @@ namespace RTSys.PlugIn
             "get_status", "list_programs", "read_source", "read_vr", "read_table",
             "list_axes", "lookup_command", "read_skill", "discover_skills",
             "search_code", "get_axis_detail", "read_drive_param", "validate_basic",
-            "read_ethercat_sdo", "list_plugins", "list_project_items", "read_hmi",
+            "read_ethercat_sdo", "list_plugins", "list_project_items",
+            // HMI 内部对象模型只读工具（调用 RTSys 进程内 ExtMainHmi.dll）
+            "hmi_list_windows", "hmi_read_window", "hmi_get_feature",
             // 新增：控制器连接状态查询（只读，子 agent 可用）
             "controller_status"
         };
@@ -467,7 +528,7 @@ namespace RTSys.PlugIn
                 Tool("list_programs", "List all programs available for editing. Works OFFLINE when no controller IP is configured: returns programs from the local cache (origin=\"local\"). When a controller is connected, merges local cache + controller programs and marks each item's origin (\"project\" | \"local\" | \"controller\" | \"both\" | \"project+controller\") plus isDirty/lastSyncedUtc so the AI can tell which programs are saved locally but not yet downloaded to the controller. Programs marked origin=\"local\" exist only in the local cache and need an explicit download to take effect on the controller.", NoParams()),
                 Tool("list_backups", "List automatic pre-write backups (program .bas and project .zpj). Optional name filters by program. Returns {success,count,backups:[{file,program,kind,reason,time,size}]}. Backups are created automatically before write_source/patch_source/delete_program/rename_program/create_program/copy_program and use the original file encoding (ANSI/UTF-8 auto-detected).", Props(("name", "Program name filter (optional)", true))),
                 Tool("restore_backup", "Restore a .bas program from an automatic backup. file comes from list_backups; name is the target program (optional, defaults to the program recorded in the backup file name). Requires confirmation. Project-file (.zpj) backups are for manual restore only.", Props(("file", "Backup file name from list_backups", false), ("name", "Target program name (optional)", true))),
-                Tool("read_source", "Read source code of a program. Works OFFLINE: reads from the local cache first; if not cached and the controller is connected, pulls from the controller AND caches it locally. If the program is neither cached locally nor reachable on a controller, returns a friendly connection error. The system auto-returns the FIRST CHUNK for files >400 lines or >12000 chars — the response includes totalLines and a hint when more chunks exist. You MUST check totalLines vs endLine and continue with startLine=endLine+1 to read subsequent chunks; NEVER assume the first response contains the whole file.", Props(
+                Tool("read_source", "Read source code of a program. Works OFFLINE: reads from the local cache first; if not cached and the controller is connected, pulls from the controller AND caches it locally. If the program is neither cached locally nor reachable on a controller, returns a friendly connection error. The system auto-returns the FIRST CHUNK for files >400 lines or >12000 chars — the response includes totalLines and a hint when more chunks exist. You MUST check totalLines vs endLine and continue with startLine=endLine+1 to read subsequent chunks; NEVER assume the first response contains the whole file. The response also includes numberedSource: every line prefixed with its exact 1-based absolute line number exactly as shown in the RTSys editor gutter (blank lines are counted). When you mention or reason about line numbers, ALWAYS use numberedSource's numbers instead of counting lines yourself. sourceCode is the raw text (no prefixes) — use it verbatim for patch_source old_string.", Props(
                     ("name", "Program name", false),
                     ("startLine", "Starting 1-based line number (optional, for pagination)", true),
                     ("endLine", "Ending 1-based line number (optional, for pagination)", true)
@@ -489,7 +550,7 @@ namespace RTSys.PlugIn
                     ("name", "Current program name", false),
                     ("newName", "New program name", false)
                 )),
-                Tool("copy_program", "复制当前 RTSys 项目中的程序到新名称：创建新 .bas 源文件并同步更新 .zpj 工程文件，不需要控制器连接。每次操作均需人工确认。", Props(
+                Tool("copy_program", "将当前工程中的 .bas 程序直接复制为新名称（工程文件场景使用文件级复制，不需要读取或重写源码，也不依赖 AI 上下文），并同步更新 .zpj 工程清单。复制本地缓存程序时也由工具直接完成，不要用 read_source + create_program/write_source 重建副本。每次操作均需人工确认。", Props(
                     ("name", "Source program name", false),
                     ("newName", "New program name", false)
                 )),
@@ -575,9 +636,49 @@ namespace RTSys.PlugIn
                 )),
                 Tool("list_plugins", "List plugins installed under the RTSys Plug_in directory (name, path, DLLs). This is a host-installation inventory, not controller-attached services.", NoParams()),
                 Tool("list_project_items", "List all project items with name/type/group", NoParams()),
-                Tool("read_hmi", "Read a ZMotion HMI screen file (.hmi) from the current RTSys project. Works OFFLINE (no controller needed): returns each window's id/name/size/position and its controls (type, typeName, id, name, geometry, display texts). Use list_project_items to discover HMI names (itemType=\"hmi\"). Read-only — it never modifies the .hmi file. If a name is omitted, nothing is read; pass the HMI file name with or without the .hmi extension.", Props(
-                    ("name", "HMI file name (with or without .hmi extension)", false)
+                // ===== HMI 内部对象模型（全部来自 RTSys 进程内 ExtMainHmi.dll 导出符号） =====
+                Tool("hmi_list_windows", "列出当前打开的 HMI 画面中所有窗口（编号/名称/尺寸/位置/控件数）。调用 RTSys 内部 ExtMainHmi.dll（FindWindowW/遍历窗口链表），不依赖控制器连接。必须在 RTSys 已打开 .hmi 画面时才有结果。", NoParams()),
+                Tool("hmi_read_window", "读取指定窗口下的全部控件列表（id/类型/名称/几何/显示文本/特征数），调用 RTSys 内部 ExtMainHmi.dll 遍历控件链表与特征链表。", Props(
+                    ("windowId", "窗口编号（来自 hmi_list_windows 的 id）", false)
                 )),
+                Tool("hmi_get_feature", "读取控件/窗口特征值（mainId/subId/index 三元组），调用 RTSys 内部 ExtMainHmi.dll FindFeature+GetFeatureInt。常用：mainId=1000 控件编号、1001 名称、1002 尺寸、1003 位置、1270 位置锁、20001 窗口编号。注意：控件编号在各窗口间重复，读控件必须同时传 windowId 定位到具体窗口，否则多窗命中同一编号会报歧义。", Props(
+                    ("targetType", "目标类型：control（默认）或 window", true),
+                    ("targetId", "目标编号（控件 id 或窗口编号）", false),
+                    ("windowId", "控件所属窗口编号（读控件时必填；窗口级调用可省略）", true),
+                    ("mainId", "特征主 ID", false),
+                    ("subId", "特征子 ID（默认 0）", true),
+                    ("index", "数组特征索引（默认 0）", true)
+                )),
+                Tool("hmi_set_feature", "写入控件/窗口特征值（整型、double、字符串按特征类型分发；几何特征使用控件 SetFeatureInt 覆盖实现并遵守 1270 锁与几何同步守卫）。写后回读验证，并触发特征面板和 HMI 画布刷新。需要确认。控件编号在各窗口间重复，写控件必须同时传 windowId，否则多窗命中同一编号会报歧义。", Props(
+                    ("targetType", "目标类型：control（默认）或 window", true),
+                    ("targetId", "目标编号（控件 id 或窗口编号）", false),
+                    ("windowId", "控件所属窗口编号（写控件时必填；窗口级调用可省略）", true),
+                    ("mainId", "特征主 ID", false),
+                    ("subId", "特征子 ID（默认 0）", true),
+                    ("index", "数组特征索引（默认 0）", true),
+                    ("value", "要写入的值（整型/字符串/数值，字符串特征用 valueString）", false)
+                )),
+                Tool("hmi_set_geometry", "设置控件几何（x/y 位置 或 width/height 尺寸），调用 RTSys 内部 ExtMainHmi.dll 控件 SetFeatureInt(1002/1003)，守卫 1270 位置锁并同步 double/1081 特征。负值会在写入前拒绝。每次写入后重绘 HMI 画布；refresh=true 时还刷新特征面板。需要确认。控件编号在各窗口间重复，必须同时传 windowId，否则多窗命中同一编号会报歧义。", PropsMixed(
+                    ("targetType", "目标类型：control（默认）", true, "string"),
+                    ("targetId", "目标控件 id", false, "integer"),
+                    ("windowId", "控件所属窗口编号（必填）", false, "integer"),
+                    ("x", "左上角 X 坐标（位置模式）", true, "integer"),
+                    ("y", "左上角 Y 坐标（位置模式）", true, "integer"),
+                    ("width", "宽度（尺寸模式）", true, "integer"),
+                    ("height", "高度（尺寸模式）", true, "integer"),
+                    ("isSize", "true 表示写 width/height，false 表示写 x/y（默认 false）", true, "boolean"),
+                    ("refresh", "写入后是否触发特征列表刷新（默认 false）", true, "boolean")
+                )),
+                Tool("hmi_create_control", "在指定窗口新建控件。controlType 使用 hmi_read_window/list 控件类型编号；ID 不可与窗口内现有控件重复。需要用户确认。", PropsMixed(
+                    ("windowId", "目标窗口编号", false, "integer"),
+                    ("controlId", "新控件编号", false, "integer"),
+                    ("controlType", "控件类型编号（例如 Button=609）", true, "integer"),
+                    ("x", "左上角 X 坐标", true, "integer"),
+                    ("y", "左上角 Y 坐标", true, "integer"),
+                    ("width", "宽度", true, "integer"),
+                    ("height", "高度", true, "integer")
+                )),
+                Tool("activate_rtsys_window", "仅当用户明确要求将 RTSys 窗口置于前台时调用。普通 HMI 读写不需要前台；HMI 工具失败时不要调用此工具重试。无参数，返回 {success, activated, error?}。", NoParams()),
                 Tool("save_project", "保存当前 RTSys 项目：将 .bas 源文件同步写入 .zpj 工程文件，不需要控制器连接。", NoParams()),
                 Tool("open_project", "打开当前 RTSys 项目：加载 .bas 源文件与 .zpj 工程文件，不需要控制器连接。", NoParams()),
                 Tool("update_memory", "Update your persistent memory (survives across sessions). ONLY call this when the user EXPLICITLY asks you to remember something (e.g. \"记住…\" / \"记住这个\" / \"下次记住\" / \"remember this\"); NEVER call it on your own — not because you finished a task, found an issue, the user mentioned a detail in passing, or you think something might be useful. Content replaces the entire memory file. Include all previous memories you want to keep plus new information. Use markdown formatting. Keep under 2000 tokens.", Props("content", "Full memory content to save")),

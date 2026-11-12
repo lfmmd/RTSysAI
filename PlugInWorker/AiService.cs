@@ -39,10 +39,24 @@ namespace RTSys.PlugIn
         private int _currentMaxTokens = DefaultMaxTokens;
 
         // GLM / 智谱 anthropic 兼容端点不执行 thinking.budget_tokens 截断（实测单块 thinking
-        // 达 6.8 万字，见 chat_history 日志）。DispatchSseEvent 按此标记做客户端硬截断：
-        // 超 budget_tokens×2 字符后丢弃后续 thinking_delta。只控制本端显示/存储/回传，
-        // 不减少模型实际 output token 消耗——要省 token 须关 enableThinking 或换支持 budget 的端点。
-        private const string ThinkTruncatedTag = "\n\n[…思考已截断：超过 budget_tokens 上限（GLM 端点未执行 budget_tokens 截断）…]";
+        // 达 6.8 万字，见 chat_history 日志）。DispatchSseEvent 按强度档做客户端硬截断：
+        // 超档内字符上限后丢弃后续 thinking_delta。只控制本端显示/存储/回传，
+        // 不减少模型实际 output token 消耗——要省 token 须选 off 或换支持 budget 的端点。
+        private const string ThinkTruncatedTag = "\n\n[…思考已截断：超过该强度档字符上限…]";
+
+        // 强度档 → Anthropic 线格式 budget_tokens（DeepSeek reasoning_effort 只有五档，
+        // 无用户可调 budget；此映射仅用于旧 anthropic 兼容线格式兼容性）。
+        internal static int ReasoningEffortBudget(string effort)
+        {
+            switch (effort) { case "low": return 2048; case "medium": return 4096; case "high": return 8192; case "max": return 16384; default: return 0; }
+        }
+
+        // 强度档 → 客户端 thinking 字符上限（中文 ~2 字/token，预算 ×2）。
+        private static int ThinkingCharCap(string effort)
+        {
+            int b = ReasoningEffortBudget(effort);
+            return b > 0 ? b * 2 : 120000;
+        }
 
         // Chat 串行保护:正常路径由 ChatPanel._isProcessing 拦截,此为防御层(防未来其他入口并发调用 Chat)
         private volatile bool _chatRunning;
@@ -642,7 +656,7 @@ namespace RTSys.PlugIn
             }
 
             var result = CallApiOnce(systemBlocks, tools, BuildTrimmedMessages(),
-                _currentMaxTokens, _enableThinking, _budgetTokens, suppressUiCallbacks: false, _model, ct);
+                _currentMaxTokens, _reasoningEffort, suppressUiCallbacks: false, _model, ct);
 
             // Cache hit monitoring: log every 5 turns
             _callTurnCounter++;
@@ -667,7 +681,7 @@ namespace RTSys.PlugIn
             List<Dictionary<string, object>> systemBlocks,
             List<Dictionary<string, object>> tools,
             List<Dictionary<string, object>> messages,
-            int maxTokens, bool enableThinking, int budgetTokens,
+            int maxTokens, string reasoningEffort,
             bool suppressUiCallbacks, string model, CancellationToken ct);
 
         private CallApiOnceDelegate _callApiOnceOverride;
@@ -684,14 +698,13 @@ namespace RTSys.PlugIn
             List<Dictionary<string, object>> tools,
             List<Dictionary<string, object>> messages,
             int maxTokens,
-            bool enableThinking,
-            int budgetTokens,
+            string reasoningEffort,
             bool suppressUiCallbacks,
             string model,
             CancellationToken ct)
         {
             if (_callApiOnceOverride != null)
-                return _callApiOnceOverride(systemBlocks, tools, messages, maxTokens, enableThinking, budgetTokens, suppressUiCallbacks, model, ct);
+                return _callApiOnceOverride(systemBlocks, tools, messages, maxTokens, reasoningEffort, suppressUiCallbacks, model, ct);
 
             var body = new Dictionary<string, object>
             {
@@ -703,14 +716,14 @@ namespace RTSys.PlugIn
                 { "stream", true }
             };
 
-            if (enableThinking)
+            if (reasoningEffort != "off")
             {
-                var thinking = new Dictionary<string, object>
+                int budgetTokens = ReasoningEffortBudget(reasoningEffort);
+                body["thinking"] = new Dictionary<string, object>
                 {
                     { "type", "enabled" },
                     { "budget_tokens", budgetTokens }
                 };
-                body["thinking"] = thinking;
                 if (maxTokens <= budgetTokens)
                     body["max_tokens"] = budgetTokens + 8192;
             }
@@ -1066,14 +1079,14 @@ namespace RTSys.PlugIn
                         var thinkingText = GetStringValue(delta, "thinking");
                         if (!string.IsNullOrEmpty(thinkingText))
                         {
-                            // 客户端硬截断：GLM 端点不守 budget_tokens，按 budget_tokens×2 字符
-                            //（中文 ~2 字/token）封顶，超限后丢弃后续 delta 并留截断标记。
+                            // 客户端硬截断：GLM 端点不守 budget_tokens，按当前强度档字符上限封顶，
+                            // 超限后丢弃后续 delta 并留截断标记。
                             var cur = pendingThinkingText ?? "";
                             if (cur.EndsWith(ThinkTruncatedTag, StringComparison.Ordinal))
                             {
                                 // 已截断，后续 thinking_delta 一律丢弃
                             }
-                            else if (cur.Length + thinkingText.Length > _budgetTokens * 2)
+                            else if (cur.Length + thinkingText.Length > ThinkingCharCap(_reasoningEffort))
                             {
                                 pendingThinkingText = cur + ThinkTruncatedTag;
                                 OnAiThinkingDelta?.Invoke(ThinkTruncatedTag);

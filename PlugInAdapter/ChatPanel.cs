@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Trio.SharedLibrary;
@@ -20,6 +21,7 @@ namespace RTSys.PlugIn
     {
         private readonly ObservableCollection<ChatMessage> _messages = new ObservableCollection<ChatMessage>();
         private ScrollViewer _scrollViewer;
+        private ItemsControl _messagesControl;
         private TextBox _inputBox;
         private Button _sendBtn;
         private AiService _ai;
@@ -935,6 +937,7 @@ namespace RTSys.PlugIn
             var itemsControl = new ItemsControl { ItemsSource = _messages };
             ScrollViewer.SetCanContentScroll(itemsControl, false);
             itemsControl.ItemTemplate = CreateMessageTemplate();
+            _messagesControl = itemsControl;
             _scrollViewer.Content = itemsControl;
             root.Children.Add(_scrollViewer);
 
@@ -1417,6 +1420,23 @@ namespace RTSys.PlugIn
             };
             panel.Children.Add(modelBox);
 
+            panel.Children.Add(MakeLabel("工具权限档 / Tool access profile"));
+            var toolModeBox = new ComboBox
+            {
+                Height = 28,
+                Margin = new Thickness(0, 0, 0, 14),
+                Background = new SolidColorBrush(Palette.DialogInput),
+                Foreground = new SolidColorBrush(Palette.Fg),
+                ToolTip = "控制 AI 可见且可调用的工具；实际执行也会再次校验。"
+            };
+            toolModeBox.Items.Add(new ComboBoxItem { Content = "只读 / Read-only", Tag = "read_only" });
+            toolModeBox.Items.Add(new ComboBoxItem { Content = "程序开发 / Development", Tag = "development" });
+            toolModeBox.Items.Add(new ComboBoxItem { Content = "完整 / Full", Tag = "full" });
+            foreach (ComboBoxItem item in toolModeBox.Items)
+                if (string.Equals(item.Tag as string, AiService.ToolMode, StringComparison.OrdinalIgnoreCase))
+                    toolModeBox.SelectedItem = item;
+            panel.Children.Add(toolModeBox);
+
             // Light Model (subagents only; empty = fall back to main model)
             panel.Children.Add(MakeLabel(Lang.S("LightModel")));
             var lightModelBox = new TextBox
@@ -1465,31 +1485,32 @@ namespace RTSys.PlugIn
             };
             panel.Children.Add(controllerValidationCheck);
 
-            // Enable thinking checkbox
-            var enableThinkingCheck = new CheckBox
+            // Reasoning effort slider: 0=off,1=low,2=medium,3=high,4=max
+            panel.Children.Add(MakeLabel(Lang.S("ReasoningSlider")));
+            string[] effortNames = { "off", "low", "medium", "high", "max" };
+            string[] effortLabels = { Lang.S("EffortOff"), Lang.S("EffortLow"), Lang.S("EffortMedium"), Lang.S("EffortHigh"), Lang.S("EffortMax") };
+            int effortIdx = Array.IndexOf(effortNames, AiService.NormalizeReasoningEffort(AiService.ReasoningEffort));
+            if (effortIdx < 0) effortIdx = 3;
+            var effortSlider = new Slider
             {
-                Content = Lang.S("EnableThinking"),
-                IsChecked = AiService.EnableThinking,
-                Foreground = new SolidColorBrush(Palette.Fg),
-                Margin = new Thickness(0, 0, 0, 4),
-                ToolTip = Lang.S("EnableThinkingDesc")
+                Minimum = 0, Maximum = 4, TickFrequency = 1, IsSnapToTickEnabled = true,
+                Value = effortIdx, Height = 28, Margin = new Thickness(0, 0, 0, 4)
             };
-            panel.Children.Add(enableThinkingCheck);
-
-            // Budget tokens input
-            panel.Children.Add(MakeLabel(Lang.S("BudgetTokens")));
-            var budgetBox = new TextBox
+            panel.Children.Add(effortSlider);
+            // 与滑杆等宽的刻度行：用 UniformGrid 5 列，保证每个档位标签与对应 tick 中心对齐
+            var tickGrid = new UniformGrid { Columns = 5, Margin = new Thickness(0, 0, 0, 14) };
+            foreach (var lbl in effortLabels)
             {
-                Text = AiService.BudgetTokens.ToString(),
-                Height = 28,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 14),
-                Background = new SolidColorBrush(Palette.DialogInput),
-                Foreground = new SolidColorBrush(Palette.Fg),
-                BorderBrush = new SolidColorBrush(Palette.Border),
-                Padding = new Thickness(6, 0, 6, 0)
-            };
-            panel.Children.Add(budgetBox);
+                // 居中于格内；首/尾一列的半格间距视觉上正好抵消滑杆手柄边距
+                var tb = new TextBlock
+                {
+                    Text = lbl,
+                    Foreground = new SolidColorBrush(Palette.Fg),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                tickGrid.Children.Add(tb);
+            }
+            panel.Children.Add(tickGrid);
 
             // Show thinking checkbox
             var showThinkingCheck = new CheckBox
@@ -1651,9 +1672,15 @@ namespace RTSys.PlugIn
                     MessageBox.Show(win, "HTTP 端口必须是 1024-65535 之间的整数。", "端口无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
-                int budget = AiService.BudgetTokens;
-                int.TryParse(budgetBox.Text, out budget);
-                _ai.SaveConfig(key, model, url, showStatusCheck.IsChecked, includeImagesCheck.IsChecked, controllerValidationCheck.IsChecked, enableThinkingCheck.IsChecked, budget, showThinkingCheck.IsChecked, memoryEnabledCheck.IsChecked, localizeThinkingCheck.IsChecked, useChineseDocsCheck.IsChecked, lightModel, ((ComboBoxItem)dialectBox.SelectedItem)?.Tag as string);
+                bool showThinkingBefore = AiService.ShowThinking;
+                _ai.SaveConfig(key, model, url, showStatusCheck.IsChecked, includeImagesCheck.IsChecked, controllerValidationCheck.IsChecked,
+                    effortNames[(int)Math.Round(effortSlider.Value)], showThinkingCheck.IsChecked, memoryEnabledCheck.IsChecked,
+                    localizeThinkingCheck.IsChecked, useChineseDocsCheck.IsChecked, lightModel, ((ComboBoxItem)dialectBox.SelectedItem)?.Tag as string,
+                    null, (toolModeBox.SelectedItem as ComboBoxItem)?.Tag as string);
+                // 消息模板在 BuildUI 时创建，Expander.IsExpanded 是模板里的固定值；
+                // 仅保存配置不会重建模板，导致「显示思考过程」开关当前会话内不生效。
+                if (showThinkingBefore != AiService.ShowThinking && _messagesControl != null)
+                    _messagesControl.ItemTemplate = CreateMessageTemplate();
                 var rtsysIp = rtsysIpBox.Text.Trim();
                 if (rtsysIp.Length > 0 && !IsLikelyIPv4(rtsysIp))
                 {

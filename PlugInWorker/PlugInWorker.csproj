@@ -53,6 +53,7 @@
     <Compile Include="RTSysEditor.cs" />
     <Compile Include="RTSysProjectModel.cs" />
     <Compile Include="ProgramWorkspace.cs" />
+    <Compile Include="HmiInternal.cs" />
     <Compile Include="BasEncoding.cs" />
     <Compile Include="ProgramBackup.cs" />
     <Compile Include="ZMotionAPI.cs" />
@@ -64,6 +65,7 @@
     <Compile Include="AiJson.cs" />
     <Compile Include="AiPrompt.cs" />
     <Compile Include="AiTools.cs" />
+    <Compile Include="AiToolPolicy.cs" />
     <Compile Include="AiSkills.cs" />
     <Compile Include="AiSession.cs" />
     <Compile Include="AiMemory.cs" />

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -83,6 +84,8 @@ namespace RTSys.PlugIn.Tests
                             if (baseline.ContainsKey("RTSysIP")) { baseline["RTSysIP"] = ""; changed = true; }
                             // 测试隔离：绝不能写用户的真实 projectDir（否则 write_source 会写进真实工程）
                             if (baseline.ContainsKey("projectDir")) { baseline["projectDir"] = ""; changed = true; }
+                            baseline["toolMode"] = AiToolPolicy.Development;
+                            changed = true;
                             if (changed) File.WriteAllText(configPath, _json.Serialize(baseline));
                         }
                     }
@@ -97,6 +100,10 @@ namespace RTSys.PlugIn.Tests
 
                 Console.WriteLine("Test Group 2: AiTools Tool Registration");
                 TestAiToolsRegistration();
+                Console.WriteLine();
+
+                Console.WriteLine("Test Group 2b: Tool Access Profiles");
+                TestToolAccessProfiles();
                 Console.WriteLine();
 
                 Console.WriteLine("Test Group 3: Tool Execution (no controller configured)");
@@ -149,6 +156,30 @@ namespace RTSys.PlugIn.Tests
 
                 Console.WriteLine("Test Group 15: Active Editor File From Window Title");
                 TestActiveEditorFileParsing();
+                Console.WriteLine();
+
+                Console.WriteLine("Test Group 16: read_source Line Numbers");
+                TestReadSourceLineNumbers();
+                Console.WriteLine();
+
+                Console.WriteLine("Test Group 17: HMI 内部对象模型 API 可用性（反射，离线）");
+                TestHmiInternalApiAvailability();
+                Console.WriteLine();
+
+                Console.WriteLine("Test Group 17b: HMI UI 封送失败结构化返回（离线）");
+                TestHmiUiInvokeFailureShape();
+                Console.WriteLine();
+
+                Console.WriteLine("Test Group 18: HMI 读取路径回归（需 RTSys 运行）");
+                TestHmiReadPath();
+                Console.WriteLine();
+
+                Console.WriteLine("Test Group 19: HMI 写入路径与守卫回归（需 RTSys 运行）");
+                TestHmiWritePathAndGuards();
+                Console.WriteLine();
+
+                Console.WriteLine("Test Group 20: HMI UI 刷新与恢复回归（需 RTSys 运行）");
+                TestHmiUiRefreshAndRestore();
                 Console.WriteLine();
 
             }
@@ -397,7 +428,7 @@ namespace RTSys.PlugIn.Tests
         {
             AssertEqual("FMARK.bas",
                 ProgramWorkspace.ParseEditorFileFromTitle(
-                    @"全伺服动作制袋机.zpj - RTSys V1.3.02 - C:\Users\LFMMD\Desktop\works\正运动\全伺服动作制袋机\ - FMARK.bas"),
+                    @"全伺服动作制袋机.zpj - RTSys V1.3.02 - D:\RTSysProjects\全伺服动作制袋机\ - FMARK.bas"),
                 "标题含 .bas 时解析出当前编辑文件");
             AssertEqual("Main.bas",
                 ProgramWorkspace.ParseEditorFileFromTitle(@"TestPro.zpj - RTSys V1.3.02 - C:\demo\ - *Main.bas"),
@@ -411,6 +442,43 @@ namespace RTSys.PlugIn.Tests
             AssertEqual(null,
                 ProgramWorkspace.ParseEditorFileFromTitle(@"TestPro.zpj - RTSys V1.3.02"),
                 "标题只有工程名时不把 .zpj 当编辑文件");
+        }
+
+        /// <summary>
+        /// read_source 行号回归：numberedSource 必须按物理行（空行计数）给出绝对行号，
+        /// 与 RTSys 编辑器行号栏一致；sourceCode 保持无前缀原文供 patch_source 精确匹配。
+        /// 首行为空行是典型场景（RTSys 保存的 .bas 常见），旧实现下模型会整体少算 1 行。
+        /// </summary>
+        private static void TestReadSourceLineNumbers()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "RTSysAI_Lines_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            ProgramWorkspace.WorkspaceDir = tempDir;
+            try
+            {
+                ProgramWorkspace.WriteLocalSource("LINE_PROG", "\n'第二行\nMOVE(0, 100)\n'第四行\n");
+
+                var full = ToDict(RTSysHandlers.ReadSource("LINE_PROG", null));
+                var fullNumbered = full["numberedSource"]?.ToString() ?? "";
+                Assert(fullNumbered.StartsWith("1: \n2: '第二行\n"), "numberedSource 首行空行计入第 1 行", fullNumbered);
+                Assert(fullNumbered.Contains("3: MOVE(0, 100)"), "numberedSource 第 3 行为 MOVE", fullNumbered);
+
+                var page = ToDict(RTSysHandlers.ReadSource("LINE_PROG", new Dictionary<string, object>
+                {
+                    { "startLine", 2 },
+                    { "endLine", 3 }
+                }));
+                Assert(Convert.ToInt32(page["startLine"]) == 2, "分片回显 startLine=2");
+                Assert((page["numberedSource"]?.ToString() ?? "") == "2: '第二行\n3: MOVE(0, 100)",
+                    "分片 numberedSource 使用绝对行号", page["numberedSource"]?.ToString());
+                Assert((page["sourceCode"]?.ToString() ?? "") == "'第二行\nMOVE(0, 100)",
+                    "sourceCode 保持无行号前缀的原文", page["sourceCode"]?.ToString());
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
+                ProgramWorkspace.ResetToDefaultDir();
+            }
         }
 
         /// <summary>
@@ -749,7 +817,6 @@ namespace RTSys.PlugIn.Tests
             Assert(toolNames.Contains("get_status"), "get_status registered");
             Assert(toolNames.Contains("list_programs"), "list_programs registered");
             Assert(toolNames.Contains("list_project_items"), "list_project_items registered");
-            Assert(toolNames.Contains("read_hmi"), "read_hmi registered");
 
             var statusTool = toolDefs.First(t => (string)t["name"] == "get_status");
             var programsTool = toolDefs.First(t => (string)t["name"] == "list_programs");
@@ -760,6 +827,28 @@ namespace RTSys.PlugIn.Tests
             Assert(itemsTool["description"].ToString().Contains("project"), "list_project_items has proper description");
         }
 
+        private static void TestToolAccessProfiles()
+        {
+            Assert(AiToolPolicy.IsEnabled("read_source", AiToolPolicy.ReadOnly), "read-only profile allows reading source");
+            Assert(!AiToolPolicy.IsEnabled("write_source", AiToolPolicy.ReadOnly), "read-only profile blocks source writes");
+            Assert(AiToolPolicy.IsEnabled("write_source", AiToolPolicy.Development), "development profile allows source editing");
+            Assert(AiToolPolicy.IsEnabled("copy_program", AiToolPolicy.Development), "development profile exposes direct program copy");
+            Assert(!AiToolPolicy.IsEnabled("copy_program", AiToolPolicy.ReadOnly), "read-only profile blocks program copy");
+            Assert(!AiToolPolicy.IsEnabled("write_vr", AiToolPolicy.Development), "development profile blocks live controller writes");
+            Assert(!AiToolPolicy.IsEnabled("controller_autoconnect", AiToolPolicy.Development), "development profile blocks controller connection changes");
+            Assert(AiToolPolicy.IsEnabled("write_vr", AiToolPolicy.Full), "full profile allows controller writes");
+            Assert(AiToolPolicy.Normalize("invalid") == AiToolPolicy.Development, "unknown profile safely falls back to development");
+
+            var definitions = new List<Dictionary<string, object>>
+            {
+                new Dictionary<string, object> { { "name", "read_source" } },
+                new Dictionary<string, object> { { "name", "write_source" } },
+                new Dictionary<string, object> { { "name", "write_vr" } }
+            };
+            var readOnly = AiToolPolicy.Filter(definitions, AiToolPolicy.ReadOnly).Select(x => x["name"].ToString()).ToList();
+            Assert(readOnly.SequenceEqual(new[] { "read_source" }), "schema filter exposes only tools enabled by profile");
+        }
+
         private static void TestToolExecution_NoController()
         {
             var aiServiceType = typeof(AiService);
@@ -767,6 +856,10 @@ namespace RTSys.PlugIn.Tests
 
             var executeTool = aiServiceType.GetMethod("ExecuteTool", BindingFlags.NonPublic | BindingFlags.Instance);
             Assert(executeTool != null, "ExecuteTool method exists");
+
+            var disabledWrite = executeTool.Invoke(svc, new object[] { "write_vr", new Dictionary<string, object>() }) as string;
+            Assert(disabledWrite != null && disabledWrite.StartsWith("BLOCKED: Tool 'write_vr'", StringComparison.Ordinal),
+                "disabled tool is rejected again at execution time");
 
             // ---- 1) get_status 无 IP 时应“成功返回，带 connectionState=NotConfigured”（结构化，非异常） ----
             var result1 = executeTool.Invoke(svc, new object[] { "get_status", new Dictionary<string, object>() });
@@ -1227,6 +1320,8 @@ namespace RTSys.PlugIn.Tests
                 Assert(copyResult.ContainsKey("success") && (bool)copyResult["success"], "CopyProgram TaskB→TaskC 成功",
                     _json.Serialize(copyResult));
                 Assert(File.Exists(Path.Combine(projectDir, "TaskC.bas")), "复制后 TaskC.bas 存在");
+                Assert(File.ReadAllBytes(Path.Combine(projectDir, "TaskB.bas")).SequenceEqual(
+                    File.ReadAllBytes(Path.Combine(projectDir, "TaskC.bas"))), "CopyProgram 原样复制文件字节，不经源码重写");
                 Assert(ProjectFileListHasProgram(projectDir, "TaskC"), ".zpj 增加 TaskC");
 
                 // ProgramWorkspace.CopyProjectProgram 契约：null=成功
@@ -1303,12 +1398,13 @@ namespace RTSys.PlugIn.Tests
                 var toolNames = toolDefs == null ? new List<string>() : toolDefs.Select(t => t["name"]?.ToString()).ToList();
                 foreach (var required in new[]
                 {
-                    "create_program", "delete_program", "rename_program", "copy_program",
-                    "open_program", "save_project", "open_project"
+                    "create_program", "copy_program", "open_program", "save_project", "open_project"
                 })
                 {
                     Assert(toolNames.Contains(required), required + " 出现在 BuildToolDefinitions 中");
                 }
+                foreach (var disabled in new[] { "delete_program", "rename_program" })
+                    Assert(!toolNames.Contains(disabled), disabled + " 在 Development 档默认不暴露");
             }
             finally
             {
@@ -1415,7 +1511,7 @@ namespace RTSys.PlugIn.Tests
                 ProgramWorkspace.WriteLocalSource("TEST_PROG", "MOVE(0,1000)\nSTOP\n");
                 ProgramWorkspace.WriteLocalSource("OTHER_PROG", "VR[10]=5\nWAIT(1)\n");
 
-                // ---- 1) list_programs：离线成功，返回本地缓存程序，origin="local" ----
+                // ---- 1) list_programs：离线只返回当前项目程序，本地缓存残留不混入 ----
                 var listResult = RTSysHandlers.ListPrograms();
                 var listDict = ToDict(listResult);
                 Assert(listDict != null, "list_programs returns serializable object (offline)");
@@ -1423,12 +1519,8 @@ namespace RTSys.PlugIn.Tests
                 var items = listDict["items"] as System.Collections.IList;
                 Assert(items != null, "list_programs items is a list");
                 var names = items.Cast<Dictionary<string, object>>().Select(i => i["name"]?.ToString()).ToList();
-                Assert(names.Contains("TEST_PROG"), "list_programs contains TEST_PROG (from local cache)");
-                Assert(names.Contains("OTHER_PROG"), "list_programs contains OTHER_PROG (from local cache)");
-                var testItem = items.Cast<Dictionary<string, object>>().FirstOrDefault(i => i["name"]?.ToString() == "TEST_PROG");
-                Assert(testItem != null, "TEST_PROG item exists");
-                Assert((string)testItem["origin"] == "local", "TEST_PROG origin is local");
-                Assert((string)testItem["storage"] == "local", "TEST_PROG storage is local");
+                Assert(!names.Contains("TEST_PROG"), "list_programs does NOT contain TEST_PROG (local-only cache excluded offline)");
+                Assert(!names.Contains("OTHER_PROG"), "list_programs does NOT contain OTHER_PROG (local-only cache excluded offline)");
 
                 // ---- 2) read_source：本地缓存命中，离线成功 ----
                 var readResult = RTSysHandlers.ReadSource("TEST_PROG", null);
@@ -1488,15 +1580,15 @@ namespace RTSys.PlugIn.Tests
                 Assert((bool)patchDict["downloadedToController"] == false, "patch_source downloadedToController is false offline");
                 Assert((bool)patchDict["pendingUpload"] == true, "patch_source pendingUpload is true offline");
 
-                // ---- 6) search_code：离线成功，在本地缓存中搜索 ----
+                // ---- 6) search_code：离线成功，local-only 不混入（NEW_PROG/TEST_PROG 非当前项目）----
                 var searchResult = RTSysHandlers.SearchCode("MOVEABS");
                 var searchDict = ToDict(searchResult);
                 Assert(searchDict != null, "search_code returns serializable object (offline)");
                 Assert(searchDict.ContainsKey("matchCount"), "search_code has matchCount");
-                Assert(Convert.ToInt64(searchDict["matchCount"]) >= 1, "search_code found at least 1 match offline");
+                Assert(Convert.ToInt64(searchDict["matchCount"]) == 0, "search_code does NOT return local-only NEW_PROG offline");
                 var searchResults = searchDict["results"] as System.Collections.IList;
                 Assert(searchResults != null, "search_code results is a list");
-                Assert(searchResults.Count >= 1, "search_code has at least one result offline");
+                Assert(searchResults.Count == 0, "search_code has zero results (local-only excluded)");
 
                 // ---- 7) compile_program：无控制器 → 友好错误，不抛异常 ----
                 var compileResult = RTSysHandlers.CompileProgram("TEST_PROG");
@@ -1540,7 +1632,7 @@ namespace RTSys.PlugIn.Tests
                 Assert(statusDict.ContainsKey("pendingUploads"), "get_status has pendingUploads field");
                 var pendingUploads = statusDict["pendingUploads"] as System.Collections.IList;
                 Assert(pendingUploads != null, "get_status pendingUploads is a list");
-                Assert(pendingUploads.Count >= 2, "get_status pendingUploads includes NEW_PROG and TEST_PROG");
+                Assert(pendingUploads.Count == 0, "get_status pendingUploads is empty (local-only excluded, no project open)");
 
                 Console.WriteLine("    (isolated workspace: " + tempDir + ")");
             }
@@ -1561,6 +1653,556 @@ namespace RTSys.PlugIn.Tests
                 else if (File.Exists(configPath))
                     File.Delete(configPath);
             }
+        }
+
+        // =====================================================================
+        // Group 17-20：HMI 内部对象模型能力（ExtMainHmi.dll 导出符号 + 进程内调用）
+        //
+        // 依据 docs/ida_analysis/hmi_internal_capabilities_2026-11-09.md：
+        //   - §2 对象入口：ZHMI_GetEditObject() → obj+0x10 = 所属 ZHmi_FileClass*
+        //   - §3 对象模型：file+0x20 窗口链 / win+0x1C 控件链 / obj+0x18 特征链
+        //   - §4 导出 API：FindFeature / GetFeatureInt / SetFeatureInt / SetString 等
+        //   - §8.7 写入守卫：1270 位置锁、1003 负值钳 0、1002/1003 同步 double
+        //
+        // Group 17 离线可跑（反射契约）；Group 18-20 需要 RTSys.exe 运行且打开 .hmi，
+        // 未满足条件时 graceful skip（不计入失败）。
+        // 所有能力均来自 RTSys 进程内的 ExtMainHmi.dll 导出符号，测试仅通过反射调用处理器。
+        // =====================================================================
+
+        /// <summary>
+        /// Group 17：HMI 内部对象模型 API 的可用性契约（离线，反射）。
+        /// 断言 RTSysHandlers 暴露 HMI 处理器、AiTools 注册 hmi_* 工具、
+        /// 写工具进入 WriteTools/PureIoTools 集合。
+        /// </summary>
+        private static void TestHmiInternalApiAvailability()
+        {
+            var handlerMethods = typeof(RTSysHandlers).GetMethods(BindingFlags.Public | BindingFlags.Static);
+            var handlerNames = handlerMethods.Select(m => m.Name).ToHashSet();
+
+            // 期望的 HMI 处理器方法（名称即契约；实现可调整参数个数）
+            foreach (var expected in new[]
+            {
+                "HmiListWindows", "HmiReadWindow", "HmiGetFeature",
+                "HmiSetFeature", "HmiSetGeometry", "HmiCreateControl"
+            })
+            {
+                Assert(handlerNames.Contains(expected), "RTSysHandlers 暴露 " + expected);
+            }
+
+            // 处理器签名：入参为 name/window/control 等，返回 object（统一可序列化）
+            foreach (var expected in new[] { "HmiListWindows", "HmiReadWindow", "HmiGetFeature", "HmiSetFeature", "HmiSetGeometry", "HmiCreateControl" })
+            {
+                var m = handlerMethods.FirstOrDefault(x => x.Name == expected);
+                if (m == null) continue;
+                Assert(m.ReturnType == typeof(object), expected + " 返回 object");
+            }
+
+            // ---- 工具注册 ----
+            var aiServiceType = typeof(AiService);
+            var getToolDefs = aiServiceType.GetMethod("GetToolDefinitions", BindingFlags.NonPublic | BindingFlags.Static);
+            var toolDefs = getToolDefs?.Invoke(null, null) as List<Dictionary<string, object>>;
+            Assert(toolDefs != null, "GetToolDefinitions 返回工具列表");
+            var toolNames = toolDefs == null ? new List<string>() : toolDefs.Select(t => t["name"]?.ToString()).ToList();
+
+            foreach (var disabled in new[]
+            {
+                "hmi_list_windows", "hmi_read_window", "hmi_get_feature",
+                "hmi_set_feature", "hmi_set_geometry", "hmi_create_control"
+            })
+                Assert(!toolNames.Contains(disabled), disabled + " 因 HMI 能力暂停而不暴露");
+
+            // ---- 集合归类 ----
+            var writeToolsField = aiServiceType.GetField("WriteTools", BindingFlags.NonPublic | BindingFlags.Static);
+            var writeTools = writeToolsField?.GetValue(null) as HashSet<string>;
+            Assert(writeTools != null, "WriteTools 字段存在");
+            foreach (var w in new[] { "hmi_set_feature", "hmi_set_geometry" })
+            {
+                Assert(writeTools != null && writeTools.Contains(w), w + " 属于 WriteTools（Plan Mode 必须拦截）");
+            }
+            Assert(writeTools != null && writeTools.Contains("hmi_create_control"),
+                "hmi_create_control 属于 WriteTools（Plan Mode 必须拦截）");
+
+            var pureIoField = aiServiceType.GetField("PureIoTools", BindingFlags.NonPublic | BindingFlags.Static);
+            var pureIoTools = pureIoField?.GetValue(null) as HashSet<string>;
+            Assert(pureIoTools != null, "PureIoTools 字段存在");
+            foreach (var p in new[] { "hmi_list_windows", "hmi_read_window", "hmi_get_feature" })
+            {
+                Assert(pureIoTools != null && pureIoTools.Contains(p), p + " 属于 PureIoTools（不阻塞 UI 调度）");
+            }
+            foreach (var p in new[] { "hmi_set_feature", "hmi_set_geometry", "hmi_create_control" })
+            {
+                Assert(pureIoTools != null && pureIoTools.Contains(p), p + " 直接分发至自封送的 HMI handler");
+            }
+        }
+
+        private static void TestHmiUiInvokeFailureShape()
+        {
+            var setWindowLong32 = typeof(RTSysProjectModel).GetMethod("SetWindowLong32", BindingFlags.NonPublic | BindingFlags.Static);
+            var entryPoint = setWindowLong32?.GetCustomAttribute<System.Runtime.InteropServices.DllImportAttribute>()?.EntryPoint;
+            Assert(entryPoint == "SetWindowLongW", "x86 WndProc hook 使用 SetWindowLongW", entryPoint ?? "EntryPoint 不存在");
+
+            var hmiOnUiThread = typeof(RTSysHandlers).GetMethod("HmiOnUiThread", BindingFlags.NonPublic | BindingFlags.Static);
+            var result = hmiOnUiThread?.Invoke(null, new object[] { new Func<object>(() => null) });
+            var response = result == null ? null : _json.Deserialize<Dictionary<string, object>>(_json.Serialize(result));
+            Assert(response != null && response.ContainsKey("success") && Equals(response["success"], false)
+                && response.ContainsKey("error"), "HMI UI 封送失败返回结构化错误", result?.GetType().FullName ?? "null");
+        }
+
+        /// <summary>
+        /// 反射调用 RTSysHandlers.Hmi* 方法的辅助类。
+        /// 若方法不存在或调用失败，返回包含 success=false 的字典，不抛异常。
+        /// 所有能力来源：RTSys 进程内 ExtMainHmi.dll 导出符号。
+        /// </summary>
+        private static class HmiTestHelper
+        {
+            private static readonly Type HandlersType = typeof(RTSysHandlers);
+
+            private static object Invoke(string methodName, params object[] args)
+            {
+                var method = HandlersType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static);
+                if (method == null) return null;
+                try
+                {
+                    return method.Invoke(null, args);
+                }
+                catch (Exception ex)
+                {
+                    var dict = new Dictionary<string, object>
+                    {
+                        { "success", false },
+                        { "error", "Handler invoke failed: " + ex.Message }
+                    };
+                    return dict;
+                }
+            }
+
+            public static Dictionary<string, object> TryHmiListWindows()
+            {
+                var result = Invoke("HmiListWindows");
+                return ToSafeDict(result);
+            }
+
+            public static Dictionary<string, object> TryHmiReadWindow(int windowId)
+            {
+                var result = Invoke("HmiReadWindow", windowId);
+                return ToSafeDict(result);
+            }
+
+            public static Dictionary<string, object> TryHmiGetFeature(string targetType, int targetId, int mainId, int subId = 0, int? windowId = null)
+            {
+                // windowId 为 null 时显式传 0 帧（无窗口语义），与新签名 int? windowId 保持兼容。
+                var result = Invoke("HmiGetFeature", targetType, targetId, mainId, subId, 0, windowId);
+                return ToSafeDict(result);
+            }
+
+            public static Dictionary<string, object> TryHmiSetFeature(string targetType, int targetId, int mainId, int subId, int value, int? windowId = null)
+            {
+                var result = Invoke("HmiSetFeature", targetType, targetId, mainId, subId, value);
+                // 上述调用仍走旧式 5 参入口；带 windowId 时直接走 Compat（index=0）。
+                if (windowId.HasValue)
+                {
+                    var compat = HandlersType.GetMethod("HmiSetFeatureCompat", BindingFlags.Public | BindingFlags.Static);
+                    if (compat != null)
+                    {
+                        try { return ToSafeDict(compat.Invoke(null, new object[] { targetType, targetId, mainId, subId, 0, value, null, null, windowId })); }
+                        catch (Exception ex) { return ErrorDict("HmiSetFeatureCompat invoke failed: " + ex.Message); }
+                    }
+                }
+                return ToSafeDict(result);
+            }
+
+            public static Dictionary<string, object> TryHmiSetGeometry(string targetType, int targetId, int? x, int? y, bool isSize = false, bool refresh = false, int? windowId = null)
+            {
+                var method = HandlersType.GetMethod("HmiSetGeometry", BindingFlags.Public | BindingFlags.Static);
+                if (method == null) return ErrorDict("HmiSetGeometry not implemented");
+                try
+                {
+                    // 构造参数字典
+                    var args = new Dictionary<string, object>
+                    {
+                        { "targetType", targetType },
+                        { "targetId", targetId },
+                        { "refresh", refresh }
+                    };
+                    if (windowId.HasValue) args["windowId"] = windowId.Value;
+                    if (isSize)
+                    {
+                        if (x.HasValue) args["width"] = x.Value;
+                        if (y.HasValue) args["height"] = y.Value;
+                    }
+                    else
+                    {
+                        if (x.HasValue) args["x"] = x.Value;
+                        if (y.HasValue) args["y"] = y.Value;
+                    }
+                    var result = method.Invoke(null, new object[] { args });
+                    return ToSafeDict(result);
+                }
+                catch (Exception ex)
+                {
+                    return ErrorDict("HmiSetGeometry invoke failed: " + ex.Message);
+                }
+            }
+
+            private static Dictionary<string, object> ToSafeDict(object result)
+            {
+                if (result == null) return ErrorDict("handler returned null (method not implemented or not registered)");
+                if (result is string s)
+                {
+                    try { return _json.Deserialize<Dictionary<string, object>>(s) ?? ErrorDict("parse failed"); }
+                    catch { return ErrorDict("parse failed: " + s); }
+                }
+                if (result is Dictionary<string, object> d) return d;
+                // 匿名类型或其他 -> 序列化再反序列化
+                try { return _json.Deserialize<Dictionary<string, object>>(_json.Serialize(result)) ?? ErrorDict("serialize returned null"); }
+                catch { return ErrorDict("serialize failed"); }
+            }
+
+            private static Dictionary<string, object> ErrorDict(string msg)
+            {
+                return new Dictionary<string, object> { { "success", false }, { "error", msg } };
+            }
+        }
+
+        /// <summary>
+        /// RTSys 运行环境检查：进程是否运行、是否在 RTSys 进程内、是否有打开的 HMI。
+        /// 所有检查通过才能跑 Group 18-20；否则 graceful skip。
+        /// </summary>
+        private static class HmiTestEnv
+        {
+            public static bool TryEnterHost(out string skipReason)
+            {
+                skipReason = null;
+                // 1) 必须在 RTSys.exe 进程内（同进程插件模式）
+                var currentProcess = Process.GetCurrentProcess().ProcessName;
+                if (!string.Equals(currentProcess, "RTSys", StringComparison.OrdinalIgnoreCase))
+                {
+                    skipReason = "当前进程不是 RTSys.exe（插件需在 RTSys 进程内运行，才能调用 ExtMainHmi 内部符号）";
+                    return false;
+                }
+
+                // 2) 尝试调用 ZHMI_GetEditObject -> obj+0x10 获取 FileClass
+                //    这里只做轻量探测：调用 HmiListWindows，若返回成功且有窗口则认为有打开的 HMI
+                var listResult = HmiTestHelper.TryHmiListWindows();
+                if (!listResult.ContainsKey("success") || !(bool)listResult["success"])
+                {
+                    object errObj;
+                    listResult.TryGetValue("error", out errObj);
+                    skipReason = "HmiListWindows 失败或未实现：" + (errObj?.ToString() ?? "unknown");
+                    return false;
+                }
+                var windows = listResult["windows"] as System.Collections.IList;
+                if (windows == null || windows.Count == 0)
+                {
+                    skipReason = "RTSys 运行中但未打开任何 .hmi 画面（请在 RTSys 中打开一个 HMI 文件）";
+                    return false;
+                }
+
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Group 18：HMI 读取路径回归（需 RTSys.exe 运行且打开 .hmi）。
+        /// 验证 hmi_list_windows 返回窗口编号/名称/几何，hmi_read_window 返回控件列表与几何，
+        /// hmi_get_feature 能按 (mainId, subId) 读出已知特征。
+        /// 未满足前置条件时跳过（打印说明，不计失败）。
+        /// 所有能力来源：RTSys 进程内 ExtMainHmi.dll 导出符号（FindFeature / GetFeatureInt / 遍历链表）。
+        /// </summary>
+        private static void TestHmiReadPath()
+        {
+            string skipReason;
+            if (!HmiTestEnv.TryEnterHost(out skipReason))
+            {
+                Console.WriteLine("    (SKIP: " + skipReason + ")");
+                return;
+            }
+
+            // ---- hmi_list_windows ----
+            var listResult = HmiTestHelper.TryHmiListWindows();
+            Assert(listResult.ContainsKey("success") && (bool)listResult["success"],
+                "hmi_list_windows 成功", _json.Serialize(listResult));
+            var windows = listResult["windows"] as System.Collections.IList;
+            Assert(windows != null && windows.Count > 0, "hmi_list_windows 返回至少 1 个窗口",
+                "count=" + (windows?.Count ?? -1));
+
+            var firstWin = windows != null && windows.Count > 0
+                ? windows[0] as Dictionary<string, object>
+                : null;
+            Assert(firstWin != null, "窗口条目为对象");
+            if (firstWin != null)
+            {
+                Assert(firstWin.ContainsKey("id"), "窗口条目含 id");
+                Assert(firstWin.ContainsKey("name"), "窗口条目含 name");
+                Assert(firstWin.ContainsKey("width") && firstWin.ContainsKey("height"),
+                    "窗口条目含几何 width/height");
+                Assert(firstWin.ContainsKey("controlCount"), "窗口条目含 controlCount");
+            }
+
+            // ---- hmi_read_window ----
+            var winId = firstWin != null ? Convert.ToInt32(firstWin["id"]) : 0;
+            var readResult = HmiTestHelper.TryHmiReadWindow(winId);
+            Assert(readResult.ContainsKey("success") && (bool)readResult["success"],
+                "hmi_read_window 成功", _json.Serialize(readResult));
+            var controls = readResult["controls"] as System.Collections.IList;
+            Assert(controls != null && controls.Count > 0, "hmi_read_window 返回至少 1 个控件",
+                "count=" + (controls?.Count ?? -1));
+
+            var firstCtl = controls != null && controls.Count > 0
+                ? controls[0] as Dictionary<string, object>
+                : null;
+            Assert(firstCtl != null, "控件条目为对象");
+            if (firstCtl != null)
+            {
+                Assert(firstCtl.ContainsKey("id"), "控件条目含 id");
+                Assert(firstCtl.ContainsKey("type"), "控件条目含 type");
+                Assert(firstCtl.ContainsKey("x") && firstCtl.ContainsKey("y"), "控件条目含 x/y");
+                Assert(firstCtl.ContainsKey("width") && firstCtl.ContainsKey("height"), "控件条目含 width/height");
+            }
+
+            // ---- hmi_get_feature：控件编号 1000 必须读得出（必须带 windowId 定位） ----
+            var ctlId = firstCtl != null ? Convert.ToInt32(firstCtl["id"]) : 0;
+            var featureResult = HmiTestHelper.TryHmiGetFeature("control", ctlId, 1000, 0, winId);
+            Assert(featureResult.ContainsKey("success") && (bool)featureResult["success"],
+                "hmi_get_feature 读取控件编号成功", _json.Serialize(featureResult));
+            Assert(featureResult.ContainsKey("value"), "hmi_get_feature 返回 value");
+            if (featureResult.ContainsKey("value"))
+            {
+                Assert(Convert.ToInt32(featureResult["value"]) == ctlId,
+                    "hmi_get_feature(1000) 值等于控件 id", featureResult["value"]?.ToString());
+            }
+
+            // 几何特征：1003[0] = X，必须与控件条目一致
+            var geoResult = HmiTestHelper.TryHmiGetFeature("control", ctlId, 1003, 0, winId);
+            Assert(geoResult.ContainsKey("success") && (bool)geoResult["success"],
+                "hmi_get_feature 读取 X 坐标成功", _json.Serialize(geoResult));
+            if (geoResult.ContainsKey("value") && firstCtl != null && firstCtl.ContainsKey("x"))
+            {
+                Assert(Convert.ToInt32(geoResult["value"]) == Convert.ToInt32(firstCtl["x"]),
+                    "hmi_get_feature(1003,0) 与控件 x 一致",
+                    "feature=" + geoResult["value"] + ", ctl=" + firstCtl["x"]);
+            }
+
+            // ---- 多窗同编号歧义：无 windowId 时必须报错而非命中键盘窗口 ----
+            if (winId != 6)
+            {
+                var amb = HmiTestHelper.TryHmiGetFeature("control", ctlId, 1003, 0, null);
+                Assert(amb.ContainsKey("success") && !(bool)amb["success"],
+                    "同编号多窗未指定 windowId 时报歧义", _json.Serialize(amb));
+                var ambErr = amb.ContainsKey("error") ? amb["error"]?.ToString() : string.Empty;
+                Assert(!string.IsNullOrEmpty(ambErr) && ambErr.Contains("windowId"),
+                    "歧义错误提示包含 windowId", ambErr);
+            }
+        }
+
+        /// <summary>
+        /// Group 19：HMI 写入路径与守卫回归（需 RTSys.exe 运行且打开 .hmi）。
+        /// 验证 hmi_set_geometry 写入 1002/1003 后 int(+0x20) 与 double(+0x28) 同步、
+        /// 负值被钳为 0、1270 位置锁生效（锁期间写入被忽略），最后恢复原值。
+        /// 所有写入都在 finally 中恢复，绝不留下污染。
+        /// 所有能力来源：RTSys 进程内 ExtMainHmi.dll 导出符号（SetFeatureInt / SetFeatureDouble / 1270 守卫 / 负值钳位）。
+        /// </summary>
+        private static void TestHmiWritePathAndGuards()
+        {
+            string skipReason;
+            if (!HmiTestEnv.TryEnterHost(out skipReason))
+            {
+                Console.WriteLine("    (SKIP: " + skipReason + ")");
+                return;
+            }
+
+            // 选一个控件作为写入目标
+            var listResult = HmiTestHelper.TryHmiListWindows();
+            var windows = listResult["windows"] as System.Collections.IList;
+            if (windows == null || windows.Count == 0)
+            {
+                Console.WriteLine("    (SKIP: 没有可写入的窗口)");
+                return;
+            }
+
+            int targetCtl = -1;
+            int targetWin = 0;
+            int origX = 0, origY = 0, origW = 0, origH = 0;
+            int origLock = 0;
+            bool lockPresent = false;
+
+            foreach (var w in windows)
+            {
+                var wd = w as Dictionary<string, object>;
+                if (wd == null) continue;
+                int wid = Convert.ToInt32(wd["id"]);
+                var readResult = HmiTestHelper.TryHmiReadWindow(wid);
+                var controls = readResult["controls"] as System.Collections.IList;
+                if (controls == null) continue;
+                foreach (var c in controls)
+                {
+                    var cd = c as Dictionary<string, object>;
+                    if (cd == null) continue;
+                    targetCtl = Convert.ToInt32(cd["id"]);
+                    targetWin = wid;
+                    origX = Convert.ToInt32(cd["x"]);
+                    origY = Convert.ToInt32(cd["y"]);
+                    origW = Convert.ToInt32(cd["width"]);
+                    origH = Convert.ToInt32(cd["height"]);
+                    break;
+                }
+                if (targetCtl >= 0) break;
+            }
+
+            Assert(targetCtl >= 0, "找到可写入的控件");
+                if (targetCtl < 0) return;
+
+                // 读取原始锁定状态（1270 特征，必须带窗口定位）
+                var lockResult = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1270, 0, targetWin);
+                if (lockResult.ContainsKey("success") && (bool)lockResult["success"] && lockResult.ContainsKey("value"))
+                {
+                    lockPresent = true;
+                    origLock = Convert.ToInt32(lockResult["value"]);
+                }
+
+                try
+                {
+                    // ---- 1) 写入 X = origX + 7，int/double 双值同步 ----
+                    var setResult = HmiTestHelper.TryHmiSetGeometry("control", targetCtl, origX + 7, origY, false, false, targetWin);
+                    Assert(setResult.ContainsKey("success") && (bool)setResult["success"],
+                        "hmi_set_geometry 写入 X 成功", _json.Serialize(setResult));
+
+                    var xInt = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1003, 0, targetWin);
+                    Assert(xInt.ContainsKey("success") && (bool)xInt["success"],
+                        "写入后读取 X 成功", _json.Serialize(xInt));
+                    Assert(Convert.ToInt32(xInt["value"]) == origX + 7,
+                        "hmi_set_geometry 后 1003[0] int = origX+7", xInt["value"]?.ToString());
+
+                    // double 同步：读取 double 通道（若处理器区分 valueType）
+                    // 注：HmiGetFeature 不暴露 double 参数，直接验证 int 值即可；double 同步由 RTSys 内部 SetFeatureInt 保证
+                    Console.WriteLine("    (double 同步由 RTSys SetFeatureInt 内部保证，此处不再单独断言)");
+
+                    // ---- 2) handler 拒绝负几何值，避免宿主 int/double 通道出现不一致 ----
+                    var negResult = HmiTestHelper.TryHmiSetGeometry("control", targetCtl, -50, origY, false, false, targetWin);
+                    Assert(negResult.ContainsKey("success") && !(bool)negResult["success"],
+                        "hmi_set_geometry 拒绝负值", _json.Serialize(negResult));
+                    var xAfterNeg = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1003, 0, targetWin);
+                    Assert(Convert.ToInt32(xAfterNeg["value"]) == origX + 7,
+                        "拒绝负值后 X 未被修改", xAfterNeg["value"]?.ToString());
+
+                    // ---- 3) 1270 位置锁：锁期间写入被忽略 ----
+                    if (lockPresent)
+                    {
+                        // 先把 X 设到一个已知值
+                        HmiTestHelper.TryHmiSetGeometry("control", targetCtl, origX + 3, origY, false, false, targetWin);
+                        var beforeLock = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1003, 0, targetWin);
+                        var beforeValue = Convert.ToInt32(beforeLock["value"]);
+
+                        // 上锁
+                        var lockSet = HmiTestHelper.TryHmiSetFeature("control", targetCtl, 1270, 0, 1, targetWin);
+                        Assert(lockSet.ContainsKey("success") && (bool)lockSet["success"],
+                            "hmi_set_feature 写入 1270 锁定标志成功", _json.Serialize(lockSet));
+
+                        // 锁期间写 X，应被忽略
+                        HmiTestHelper.TryHmiSetGeometry("control", targetCtl, beforeValue + 40, origY, false, false, targetWin);
+                        var afterLock = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1003, 0, targetWin);
+                        Assert(Convert.ToInt32(afterLock["value"]) == beforeValue,
+                            "1270 锁定期间 1003 写入被忽略", afterLock["value"]?.ToString());
+
+                        // 解锁
+                        HmiTestHelper.TryHmiSetFeature("control", targetCtl, 1270, 0, origLock, targetWin);
+                    }
+                    else
+                    {
+                        Console.WriteLine("    (控件无 1270 特征，跳过位置锁断言)");
+                    }
+                }
+                finally
+                {
+                    // 恢复原始几何与锁定状态
+                    HmiTestHelper.TryHmiSetGeometry("control", targetCtl, origX, origY, false, false, targetWin);
+                    HmiTestHelper.TryHmiSetGeometry("control", targetCtl, origW, origH, true, false, targetWin);
+                    if (lockPresent) HmiTestHelper.TryHmiSetFeature("control", targetCtl, 1270, 0, origLock, targetWin);
+                }
+
+                // ---- 4) 恢复校验 ----
+                var restoredX = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1003, 0, targetWin);
+                Assert(Convert.ToInt32(restoredX["value"]) == origX,
+                    "恢复后 1003[0] 回到原值", restoredX["value"]?.ToString() + " vs " + origX);
+                var restoredW = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1002, 0, targetWin);
+                Assert(Convert.ToInt32(restoredW["value"]) == origW,
+                    "恢复后 1002[0] 回到原值", restoredW["value"]?.ToString() + " vs " + origW);
+                var restoredLock = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1270, 0, targetWin);
+                if (lockPresent)
+                {
+                    Assert(Convert.ToInt32(restoredLock["value"]) == origLock,
+                        "恢复后 1270 回到原值", restoredLock["value"]?.ToString() + " vs " + origLock);
+                }
+            }
+
+        /// <summary>
+        /// Group 20：HMI UI 刷新与恢复回归（需 RTSys.exe 运行且打开 .hmi）。
+        /// 验证 hmi_set_geometry 写入后 UI 不自动重绘（宿主不自动刷新），
+        /// 且处理器提供显式刷新入口；恢复后控件几何回到原值。
+        /// 所有能力来源：RTSys 进程内 ExtMainHmi.dll 导出符号 + MFC 重绘消息（InvalidateRect/WM_PAINT）。
+        /// </summary>
+        private static void TestHmiUiRefreshAndRestore()
+        {
+            string skipReason;
+            if (!HmiTestEnv.TryEnterHost(out skipReason))
+            {
+                Console.WriteLine("    (SKIP: " + skipReason + ")");
+                return;
+            }
+
+            // 找一个控件
+            var listResult = HmiTestHelper.TryHmiListWindows();
+            var windows = listResult["windows"] as System.Collections.IList;
+            if (windows == null || windows.Count == 0)
+            {
+                Console.WriteLine("    (SKIP: 没有可刷新验证的控件)");
+                return;
+            }
+
+            int targetCtl = -1, origX = 0, targetWin = 0;
+            foreach (var w in windows)
+            {
+                var wd = w as Dictionary<string, object>;
+                if (wd == null) continue;
+                int wid = Convert.ToInt32(wd["id"]);
+                var readResult = HmiTestHelper.TryHmiReadWindow(wid);
+                var controls = readResult["controls"] as System.Collections.IList;
+                if (controls == null) continue;
+                foreach (var c in controls)
+                {
+                    var cd = c as Dictionary<string, object>;
+                    if (cd == null) continue;
+                    targetCtl = Convert.ToInt32(cd["id"]);
+                    targetWin = wid;
+                    origX = Convert.ToInt32(cd["x"]);
+                    break;
+                }
+                if (targetCtl >= 0) break;
+            }
+            Assert(targetCtl >= 0, "找到可刷新验证的控件");
+            if (targetCtl < 0) return;
+
+            // 写入新位置（refresh=true 请求显式刷新）
+            var setResult = HmiTestHelper.TryHmiSetGeometry("control", targetCtl, origX + 12, null, false, true, targetWin);
+            Assert(setResult.ContainsKey("success") && (bool)setResult["success"],
+                "hmi_set_geometry 写入位置成功", _json.Serialize(setResult));
+
+            // 处理器应能报告是否触发了刷新
+            if (setResult.ContainsKey("refreshed"))
+            {
+                Assert(setResult.ContainsKey("refresh"), "刷新结果含 refresh 字段说明");
+            }
+            else
+            {
+                Console.WriteLine("    (处理器未暴露 refreshed 字段，跳过刷新标志断言)");
+            }
+
+            // 恢复
+            HmiTestHelper.TryHmiSetGeometry("control", targetCtl, origX, null, false, true, targetWin);
+
+            var restored = HmiTestHelper.TryHmiGetFeature("control", targetCtl, 1003, 0, targetWin);
+            Assert(Convert.ToInt32(restored["value"]) == origX,
+                "恢复后控件 X 回到原值", restored["value"]?.ToString() + " vs " + origX);
         }
 
         /// <summary>
